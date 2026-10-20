@@ -181,9 +181,6 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
               Admin Verification View
             </button>
           </div>
-          <p className="text-xs text-indigo-200/90 mt-3">
-            Please fill in your authentic details. Your submission will be recorded directly into the Supabase database.
-          </p>
         </div>
 
         {/* Form Body or Success State */}
