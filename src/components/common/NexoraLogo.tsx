@@ -15,31 +15,32 @@ export const NexoraLogo: React.FC<NexoraLogoProps> = ({
 }) => {
   const [useFallback, setUseFallback] = useState(false);
 
+  // Dimensions optimized for original 444x350 Nexora Academy logo
   const heightClasses = {
-    sm: 'h-8 max-w-[130px]',
-    md: 'h-10 sm:h-12 max-w-[180px]',
-    lg: 'h-14 sm:h-16 max-w-[220px]',
-    xl: 'h-16 sm:h-20 max-w-[260px]',
-    hero: 'h-20 sm:h-24 max-w-[320px]',
+    sm: 'h-8 sm:h-9 w-auto',
+    md: 'h-10 sm:h-12 w-auto',
+    lg: 'h-14 sm:h-16 w-auto',
+    xl: 'h-18 sm:h-20 w-auto',
+    hero: 'h-20 sm:h-24 w-auto',
   }[size];
 
-  // Try the imported asset first; fallback to the exact Base64 logo
-  const logoSrc = useFallback ? NEXORA_AI_LOGO_BASE64 : logoPng;
+  // Use original PNG import, fallback to inlined base64
+  const logoSrc = useFallback ? NEXORA_AI_LOGO_BASE64 : (logoPng || NEXORA_AI_LOGO_BASE64);
 
   return (
     <div className={`inline-flex flex-col items-center justify-center select-none ${className}`}>
       <img
         src={logoSrc}
-        alt="Official Logo"
+        alt="Nexora Academy Official Logo"
         onError={() => setUseFallback(true)}
-        className={`${heightClasses} w-auto object-contain transition-transform duration-200`}
+        className={`${heightClasses} object-contain transition-transform duration-200`}
         style={{
           imageRendering: 'auto',
           display: 'block',
         }}
       />
       {showSubtitle && (
-        <span className="text-[10px] tracking-wider uppercase font-semibold text-indigo-600 mt-1">
+        <span className="text-[10px] sm:text-[11px] tracking-wider uppercase font-extrabold text-indigo-600 mt-1">
           Admission & Fee Portal
         </span>
       )}

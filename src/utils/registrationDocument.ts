@@ -34,18 +34,19 @@ export const downloadRegistrationPdf = async (record: RegistrationRecordData): P
   const marginX = 18;
   const contentWidth = pageWidth - marginX * 2; // 174mm
 
-  // 1. Official Header & Logo
+  // 1. Official Header & Authentic PNG Logo
   let logoAdded = false;
   if (NEXORA_AI_LOGO_BASE64 && NEXORA_AI_LOGO_BASE64.startsWith('data:image')) {
     try {
-      doc.addImage(NEXORA_AI_LOGO_BASE64, 'JPEG', marginX, 14, 22, 22);
+      // 444 x 350 aspect ratio -> 25mm width x 19.7mm height
+      doc.addImage(NEXORA_AI_LOGO_BASE64, 'PNG', marginX, 14, 25, 19.7);
       logoAdded = true;
     } catch (e) {
       console.warn('Could not embed base64 logo in PDF:', e);
     }
   }
 
-  const headerTextX = logoAdded ? marginX + 26 : marginX;
+  const headerTextX = logoAdded ? marginX + 28 : marginX;
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(18);
@@ -63,7 +64,7 @@ export const downloadRegistrationPdf = async (record: RegistrationRecordData): P
 
   doc.setDrawColor(245, 158, 11); // amber-500
   doc.setFillColor(254, 243, 199); // amber-100
-  const badgeWidth = 72;
+  const badgeWidth = 74;
   const badgeX = pageWidth - marginX - badgeWidth;
   doc.roundedRect(badgeX, 16, badgeWidth, 9, 2, 2, 'FD');
   doc.setFont('helvetica', 'bold');
@@ -74,32 +75,32 @@ export const downloadRegistrationPdf = async (record: RegistrationRecordData): P
   // Divider Line
   doc.setDrawColor(226, 232, 240); // slate-200
   doc.setLineWidth(0.5);
-  doc.line(marginX, 40, marginX + contentWidth, 40);
+  doc.line(marginX, 38, marginX + contentWidth, 38);
 
   // 2. Reference ID Highlight Box
   doc.setFillColor(248, 250, 252); // slate-50
   doc.setDrawColor(203, 213, 225); // slate-300
-  doc.roundedRect(marginX, 44, contentWidth, 15, 2, 2, 'FD');
+  doc.roundedRect(marginX, 42, contentWidth, 15, 2, 2, 'FD');
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8);
   doc.setTextColor(100, 116, 139); // slate-500
-  doc.text('REGISTRATION / REFERENCE ID', marginX + 4, 49.5);
+  doc.text('REGISTRATION / REFERENCE ID', marginX + 4, 47.5);
 
   doc.setFont('courier', 'bold');
   doc.setFontSize(10.5);
   doc.setTextColor(67, 56, 202); // indigo-700
-  doc.text(record.id, marginX + 4, 55.5);
+  doc.text(record.id, marginX + 4, 53.5);
 
   // Optional Student Photo (if provided)
   if (record.photoUrl && record.photoUrl.startsWith('data:image')) {
     try {
-      doc.addImage(record.photoUrl, 'JPEG', pageWidth - marginX - 25, 64, 25, 25);
+      doc.addImage(record.photoUrl, 'JPEG', pageWidth - marginX - 25, 62, 25, 25);
     } catch {}
   }
 
-  // 3. Structured Record Table
-  let currentY = 66;
+  // 3. Structured Record Table (Only actual available details)
+  let currentY = 64;
   const labelWidth = 60;
   const valueWidth = contentWidth - labelWidth - (record.photoUrl ? 30 : 5);
 
@@ -113,7 +114,6 @@ export const downloadRegistrationPdf = async (record: RegistrationRecordData): P
     doc.setFontSize(9);
     doc.setTextColor(15, 23, 42);
 
-    // Multi-line wrap for long course names
     const splitLines = doc.splitTextToSize(value, valueWidth);
     doc.text(splitLines, marginX + labelWidth, currentY);
 
@@ -127,7 +127,6 @@ export const downloadRegistrationPdf = async (record: RegistrationRecordData): P
     currentY += rowHeight;
   };
 
-  // Only display fields that exist in the actual record
   if (record.studentName) {
     addFieldRow('Student Full Name:', record.studentName);
   }
@@ -197,7 +196,7 @@ export const downloadRegistrationPdf = async (record: RegistrationRecordData): P
 
 /**
  * Opens an isolated print preview with full styling and logo.
- * Completely immune to main-page CSS collisions, parent 'no-print' bugs, or blank print outputs.
+ * Uses an off-screen, full-size iframe to prevent blank print preview in Chromium, Safari, and mobile engines.
  */
 export const printRegistrationDocument = (record: RegistrationRecordData): void => {
   if (!record || !record.id || !record.studentName) {
@@ -211,15 +210,18 @@ export const printRegistrationDocument = (record: RegistrationRecordData): void 
     existingFrame.remove();
   }
 
+  // Off-screen full-size iframe: Never use width: 0 or visibility: hidden as browsers skip printing them!
   const iframe = document.createElement('iframe');
   iframe.id = 'nexora-print-iframe';
   iframe.style.position = 'fixed';
-  iframe.style.right = '0';
-  iframe.style.bottom = '0';
-  iframe.style.width = '0';
-  iframe.style.height = '0';
-  iframe.style.border = '0';
-  iframe.style.visibility = 'hidden';
+  iframe.style.top = '0';
+  iframe.style.left = '-9999px';
+  iframe.style.width = '1024px';
+  iframe.style.height = '1400px';
+  iframe.style.border = 'none';
+  iframe.style.opacity = '0';
+  iframe.style.pointerEvents = 'none';
+  iframe.style.zIndex = '-9999';
   document.body.appendChild(iframe);
 
   const doc = iframe.contentWindow?.document;
@@ -278,8 +280,8 @@ export const printRegistrationDocument = (record: RegistrationRecordData): void 
             gap: 14px;
           }
           .logo-img {
-            width: 48px;
-            height: 48px;
+            width: 52px;
+            height: auto;
             object-fit: contain;
           }
           .brand-title {
@@ -378,7 +380,7 @@ export const printRegistrationDocument = (record: RegistrationRecordData): void 
         <div class="voucher-container">
           <div class="header">
             <div class="brand">
-              <img src="${NEXORA_AI_LOGO_BASE64}" class="logo-img" alt="Nexora Logo" />
+              <img src="${NEXORA_AI_LOGO_BASE64}" class="logo-img" alt="Nexora Academy Official Logo" />
               <div>
                 <h1 class="brand-title">Nexora Academy</h1>
                 <p class="brand-sub">Official Student Registration & Fee Voucher</p>
@@ -449,9 +451,14 @@ export const printRegistrationDocument = (record: RegistrationRecordData): void 
   doc.write(html);
   doc.close();
 
-  // Trigger print once document and image are ready
+  // Give the browser time to decode the base64 image and layout before printing
   setTimeout(() => {
-    iframe.contentWindow?.focus();
-    iframe.contentWindow?.print();
-  }, 300);
+    try {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+    } catch (e) {
+      console.warn('Iframe print error, falling back to window.print():', e);
+      window.print();
+    }
+  }, 250);
 };

@@ -37,6 +37,11 @@
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
+    html, body, #root, main, div {
+      overflow: visible !important;
+      height: auto !important;
+      min-height: auto !important;
+    }
     header, footer, nav, button, .no-print {
       display: none !important;
     }

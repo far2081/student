@@ -61,7 +61,7 @@ const MainAppContent: React.FC = () => {
       <footer className="bg-slate-900 text-slate-400 py-8 border-t border-slate-800 no-print mt-auto">
         <div className="max-w-6xl mx-auto px-4 text-center space-y-3">
           <div className="flex items-center justify-center">
-            <NexoraLogo size="sm" className="brightness-200 contrast-200" />
+            <NexoraLogo size="sm" />
           </div>
 
           <div className="text-sm font-medium text-slate-300">
