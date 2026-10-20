@@ -2,6 +2,11 @@ import React, { useState, useRef } from 'react';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { NexoraLogo } from '../common/NexoraLogo';
 import {
+  printRegistrationDocument,
+  downloadRegistrationPdf,
+  RegistrationRecordData,
+} from '../../utils/registrationDocument';
+import {
   CheckCircle2,
   AlertCircle,
   Upload,
@@ -9,18 +14,19 @@ import {
   Phone,
   Mail,
   BookOpen,
-  CreditCard,
   Lock,
   Check,
   RefreshCw,
   Printer,
   Download,
-  Clock,
   Building,
   Smartphone,
   Wallet,
   Receipt,
-  Info,
+  Sparkles,
+  FlaskConical,
+  ShieldAlert,
+  Loader2,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -28,62 +34,41 @@ interface StudentTestFormProps {
   onOpenAdmin: () => void;
 }
 
-export type PaymentMethodType = 'Cash' | 'JazzCash' | 'Easypaisa' | 'Bank Transfer';
+export type DemoPaymentMethodType = 'JazzCash (Demo)' | 'Easypaisa (Demo)' | 'Bank Transfer (Demo)';
 
-// Configurable recipient account details with clearly marked placeholders
-export const PAYMENT_METHOD_CONFIG: Record<
-  PaymentMethodType,
+export const DEMO_PAYMENT_CONFIG: Record<
+  DemoPaymentMethodType,
   {
     name: string;
-    accountTitle: string;
-    accountNumber: string;
-    bankName?: string;
+    sandboxChannel: string;
+    simulatedAccount: string;
     instructions: string;
-    trxLabel: string;
-    trxPlaceholder: string;
-    badgeStyle: string;
+    icon: 'smartphone' | 'wallet' | 'building';
   }
 > = {
-  JazzCash: {
-    name: 'JazzCash',
-    accountTitle: 'Nexora Academy [Admin Name]',
-    accountNumber: '0300-XXXXXXX [Placeholder - Configure Admin Number]',
+  'JazzCash (Demo)': {
+    name: 'JazzCash (Demo)',
+    sandboxChannel: 'JazzCash Sandbox Simulation Gateway',
+    simulatedAccount: 'DEMO-JC-0300-0000000 (Test Sandbox Only)',
     instructions:
-      'Open your JazzCash App or dial *786#. Transfer fee to the mobile account above, then enter the 10-12 digit Transaction ID (TID) received via SMS below.',
-    trxLabel: 'JazzCash TID / Transaction ID',
-    trxPlaceholder: 'e.g. TID-98234823412',
-    badgeStyle: 'bg-amber-50 text-amber-900 border-amber-300',
+      'Simulate an instant mobile wallet transfer via JazzCash Sandbox. No actual funds or credentials are requested.',
+    icon: 'smartphone',
   },
-  Easypaisa: {
-    name: 'Easypaisa',
-    accountTitle: 'Nexora Academy [Admin Name]',
-    accountNumber: '0345-XXXXXXX [Placeholder - Configure Admin Number]',
+  'Easypaisa (Demo)': {
+    name: 'Easypaisa (Demo)',
+    sandboxChannel: 'Easypaisa Sandbox Simulation Gateway',
+    simulatedAccount: 'DEMO-EP-0345-0000000 (Test Sandbox Only)',
     instructions:
-      'Open your Easypaisa App or visit an Easypaisa shop. Send fee to the mobile number above, then enter the TRX ID received from 3737 in SMS below.',
-    trxLabel: 'Easypaisa TRX ID',
-    trxPlaceholder: 'e.g. 78392019482',
-    badgeStyle: 'bg-emerald-50 text-emerald-900 border-emerald-300',
+      'Simulate an instant mobile wallet transfer via Easypaisa Sandbox. No real money is required or transferred.',
+    icon: 'wallet',
   },
-  'Bank Transfer': {
-    name: 'Bank Transfer',
-    bankName: 'Meezan Bank Ltd [Placeholder]',
-    accountTitle: 'Nexora Academy [Account Title]',
-    accountNumber: 'PK00 MEZN 0000 0000 0000 0000 [Placeholder - Configure IBAN]',
+  'Bank Transfer (Demo)': {
+    name: 'Bank Transfer (Demo)',
+    sandboxChannel: 'Meezan Bank Demo IBFT / Raast Sandbox',
+    simulatedAccount: 'PK00 DEMO 0000 0000 0000 0000 (Test Sandbox Only)',
     instructions:
-      'Transfer via Mobile Banking App, Raast, or ATM. Enter the Bank Reference / Transaction ID from your payment receipt below.',
-    trxLabel: 'Bank Reference / Transaction ID',
-    trxPlaceholder: 'e.g. MEZN-839218392 or Raast Ref',
-    badgeStyle: 'bg-blue-50 text-blue-900 border-blue-300',
-  },
-  Cash: {
-    name: 'Cash Payment',
-    accountTitle: 'Admission Office / Finance Counter',
-    accountNumber: 'Nexora Academy Campus Counter (9:00 AM - 5:00 PM)',
-    instructions:
-      'Pay in cash directly at the campus admission counter. If a manual receipt was issued, enter its number below or keep CASH-COUNTER.',
-    trxLabel: 'Cash Receipt # / Reference',
-    trxPlaceholder: 'e.g. CASH-COUNTER or Manual Receipt #',
-    badgeStyle: 'bg-slate-50 text-slate-800 border-slate-300',
+      'Simulate an online IBFT / Raast bank transfer. Fully simulated with zero financial risk or real banking connectivity.',
+    icon: 'building',
   },
 };
 
@@ -94,26 +79,25 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
     email: '',
     courseName: 'Full Stack Web & Cloud Development',
     hasScholarship: false,
-    paymentMethod: 'JazzCash' as PaymentMethodType,
-    transactionId: '',
+    paymentMethod: 'JazzCash (Demo)' as DemoPaymentMethodType,
   });
 
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
-  const [submissionRecord, setSubmissionRecord] = useState<{
-    id: string;
-    studentName: string;
-    whatsappNumber: string;
-    email: string;
-    courseName: string;
-    hasScholarship: boolean;
-    paymentMethod: PaymentMethodType;
-    transactionId: string;
-    paymentStatus: string;
-    createdAt: string;
-    photoUrl: string | null;
-  } | null>(null);
+
+  // Demo Payment Simulation State
+  const [isSimulatingPayment, setIsSimulatingPayment] = useState(false);
+  const [paymentSimulated, setPaymentSimulated] = useState(false);
+  const [demoTransactionId, setDemoTransactionId] = useState<string>('');
+  const [demoSuccessMessage, setDemoSuccessMessage] = useState<string | null>(null);
+
+  // Print and PDF generation states & loading indicators
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [printError, setPrintError] = useState<string | null>(null);
+
+  const [submissionRecord, setSubmissionRecord] = useState<RegistrationRecordData | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -151,17 +135,75 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
     reader.readAsDataURL(file);
   };
 
+  // Dedicated Print Registration Handler using isolated iframe
   const handlePrint = () => {
-    window.print();
+    setPrintError(null);
+    if (!submissionRecord) {
+      setPrintError('No registration record is loaded to print. Please submit the form first.');
+      return;
+    }
+
+    setIsPrinting(true);
+    try {
+      printRegistrationDocument(submissionRecord);
+    } catch (err: any) {
+      console.error('Print error:', err);
+      setPrintError(err.message || 'Failed to open print preview.');
+    } finally {
+      setTimeout(() => setIsPrinting(false), 800);
+    }
   };
 
-  const handleDownloadPdf = () => {
-    const originalTitle = document.title;
-    document.title = `Registration_Voucher_${submissionRecord?.id || 'Record'}`;
-    window.print();
+  // Dedicated Vector PDF Download Handler using jsPDF
+  const handleDownloadPdf = async () => {
+    setPrintError(null);
+    if (!submissionRecord) {
+      setPrintError('No registration record is loaded to download. Please submit the form first.');
+      return;
+    }
+
+    setIsGeneratingPdf(true);
+    try {
+      await downloadRegistrationPdf(submissionRecord);
+    } catch (err: any) {
+      console.error('PDF generation error:', err);
+      setPrintError(err.message || 'Failed to generate PDF voucher.');
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
+  // Simulate Payment Handler
+  const handleSimulatePayment = () => {
+    setIsSimulatingPayment(true);
+    setErrorMessage(null);
+
     setTimeout(() => {
-      document.title = originalTitle;
-    }, 1500);
+      // Generate realistic demo transaction ID
+      const prefix =
+        formData.paymentMethod === 'JazzCash (Demo)'
+          ? 'DEMO-JC'
+          : formData.paymentMethod === 'Easypaisa (Demo)'
+          ? 'DEMO-EP'
+          : 'DEMO-BNK';
+      const randomDigits = Math.floor(10000000 + Math.random() * 90000000);
+      const generatedTrxId = `${prefix}-${randomDigits}`;
+
+      setDemoTransactionId(generatedTrxId);
+      setPaymentSimulated(true);
+      setIsSimulatingPayment(false);
+      setDemoSuccessMessage(
+        'Demo Payment Successful! This is a demonstration only. No real money has been transferred.'
+      );
+
+      try {
+        confetti({
+          particleCount: 50,
+          spread: 45,
+          origin: { y: 0.7 },
+        });
+      } catch {}
+    }, 600);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -191,12 +233,21 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
       return;
     }
 
-    // Transaction ID validation: Required for online/digital methods (JazzCash, Easypaisa, Bank Transfer)
-    if (formData.paymentMethod !== 'Cash' && !formData.transactionId.trim()) {
-      setErrorMessage(
-        `Please enter the required Transaction ID / Reference Number for ${formData.paymentMethod}.`
+    // Require simulated payment before submitting
+    let finalTrx = demoTransactionId;
+    if (!paymentSimulated || !finalTrx) {
+      const prefix =
+        formData.paymentMethod === 'JazzCash (Demo)'
+          ? 'DEMO-JC'
+          : formData.paymentMethod === 'Easypaisa (Demo)'
+          ? 'DEMO-EP'
+          : 'DEMO-BNK';
+      finalTrx = `${prefix}-${Math.floor(10000000 + Math.random() * 90000000)}`;
+      setDemoTransactionId(finalTrx);
+      setPaymentSimulated(true);
+      setDemoSuccessMessage(
+        'Demo Payment Successful! This is a demonstration only. No real money has been transferred.'
       );
-      return;
     }
 
     setIsSubmitting(true);
@@ -208,13 +259,11 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
         );
       }
 
-      // Generate client UUID for exact submission reference ID
       const newRefId = crypto.randomUUID();
-      const finalTrxId = formData.transactionId.trim() || (formData.paymentMethod === 'Cash' ? 'CASH-COUNTER' : 'PENDING');
-      const finalPaymentStatus = 'Pending Verification';
+      const demoStatus = 'Demo Payment — Not a Real Transaction';
       const nowIso = new Date().toISOString();
 
-      // Full payload including transaction_id and payment_status
+      // 1. Full payload targeting Supabase
       const fullPayload: any = {
         id: newRefId,
         student_name: formData.studentName.trim(),
@@ -224,48 +273,34 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
         photo_url: photoPreview || null,
         has_scholarship: formData.hasScholarship,
         payment_method: formData.paymentMethod,
-        transaction_id: finalTrxId,
-        payment_status: finalPaymentStatus,
+        transaction_id: finalTrx,
+        payment_status: demoStatus,
       };
 
-      // Direct Supabase INSERT
       const insertRes = await supabase.from('student_test_records').insert(fullPayload);
 
       if (insertRes.error) {
-        console.warn('Supabase insert with full fields encountered:', insertRes.error);
+        console.warn('Full schema insert rejected, falling back to compatibility insert:', insertRes.error);
 
-        // Fallback for database instances that haven't executed the ALTER TABLE migration yet
-        if (
-          insertRes.error.code === 'PGRST204' ||
-          insertRes.error.message?.includes('payment_status') ||
-          insertRes.error.message?.includes('transaction_id') ||
-          insertRes.error.code === '42501'
-        ) {
-          console.info('Attempting compatibility insert using base schema...');
-          const legacyPayload: any = {
-            id: newRefId,
-            student_name: formData.studentName.trim(),
-            whatsapp_number: formData.whatsappNumber.trim(),
-            email: formData.email.trim().toLowerCase(),
-            course_name: `${formData.courseName.trim()}${finalTrxId ? ` [Trx: ${finalTrxId}]` : ''}`,
-            photo_url: photoPreview || null,
-            has_scholarship: formData.hasScholarship,
-            payment_method:
-              formData.paymentMethod === 'Cash' || formData.paymentMethod === 'Bank Transfer'
-                ? formData.paymentMethod
-                : 'Online',
-          };
+        // Fallback for database instances where custom columns or constraints are not yet migrated
+        const legacyPayload: any = {
+          id: newRefId,
+          student_name: formData.studentName.trim(),
+          whatsapp_number: formData.whatsappNumber.trim(),
+          email: formData.email.trim().toLowerCase(),
+          course_name: `${formData.courseName.trim()} [${formData.paymentMethod} | ${demoStatus} | Trx: ${finalTrx}]`,
+          photo_url: photoPreview || null,
+          has_scholarship: formData.hasScholarship,
+          payment_method: 'Online',
+        };
 
-          const fallbackRes = await supabase.from('student_test_records').insert(legacyPayload);
-          if (fallbackRes.error) {
-            throw new Error(fallbackRes.error.message || 'Database rejected the submission.');
-          }
-        } else {
-          throw new Error(insertRes.error.message || 'Database rejected the submission.');
+        const fallbackRes = await supabase.from('student_test_records').insert(legacyPayload);
+        if (fallbackRes.error) {
+          throw new Error(fallbackRes.error.message || 'Database rejected the submission.');
         }
       }
 
-      // Save submission record state for voucher and print
+      // Record state for display and printing
       setSubmissionRecord({
         id: newRefId,
         studentName: formData.studentName.trim(),
@@ -274,15 +309,14 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
         courseName: formData.courseName.trim(),
         hasScholarship: formData.hasScholarship,
         paymentMethod: formData.paymentMethod,
-        transactionId: finalTrxId,
-        paymentStatus: finalPaymentStatus,
+        transactionId: finalTrx,
+        paymentStatus: demoStatus,
         createdAt: nowIso,
         photoUrl: photoPreview || null,
       });
 
       setSubmitSuccess(true);
 
-      // Trigger celebration
       try {
         confetti({
           particleCount: 80,
@@ -298,13 +332,13 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
     }
   };
 
-  const currentPaymentConfig = PAYMENT_METHOD_CONFIG[formData.paymentMethod];
+  const activeConfig = DEMO_PAYMENT_CONFIG[formData.paymentMethod];
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
       {/* Top Banner & Mode */}
-      <div className="bg-white rounded-3xl shadow-xl border border-slate-200/90 overflow-hidden mb-6 no-print">
-        <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 p-6 sm:p-8 text-white">
+      <div className="bg-white rounded-3xl shadow-xl border border-slate-200/90 overflow-hidden mb-6">
+        <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 p-6 sm:p-8 text-white no-print">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <NexoraLogo size="sm" />
@@ -312,6 +346,10 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
                 <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
                   Student Registration Form
                 </h1>
+                <span className="inline-flex items-center gap-1 mt-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-400/20 text-amber-200 border border-amber-300/30">
+                  <FlaskConical className="w-3 h-3 text-amber-300" />
+                  DEMO PAYMENT SYSTEM • NO REAL MONEY
+                </span>
               </div>
             </div>
 
@@ -331,20 +369,32 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
         {/* ============================================================== */}
         {submitSuccess && submissionRecord ? (
           <div className="p-6 sm:p-8 text-center animate-in fade-in zoom-in-95">
-            {/* Required Payment Confirmation Message Banner */}
-            <div className="mb-6 p-4 sm:p-5 rounded-2xl bg-amber-50/90 border border-amber-200 text-amber-950 text-left flex items-start gap-3 shadow-xs">
-              <Clock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            {/* Required Exact Demo Confirmation Message */}
+            <div className="mb-6 p-4 sm:p-5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-950 text-left flex items-start gap-3 shadow-xs no-print">
+              <CheckCircle2 className="w-6 h-6 text-emerald-600 shrink-0 mt-0.5" />
               <div>
-                <h3 className="font-extrabold text-sm sm:text-base text-amber-900">
-                  Your registration has been submitted successfully.
+                <h3 className="font-extrabold text-sm sm:text-base text-emerald-900">
+                  Demo Payment Successful!
                 </h3>
-                <p className="text-xs sm:text-sm text-amber-800 mt-1 font-medium leading-relaxed">
-                  Your registration has been submitted successfully. Your payment details have been received and are pending verification.
+                <p className="text-xs sm:text-sm text-emerald-800 mt-1 font-semibold leading-relaxed">
+                  Demo Payment Successful! This is a demonstration only. No real money has been transferred.
                 </p>
+                <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-900 text-[11px] font-bold">
+                  <span>Status:</span>
+                  <span className="font-extrabold">Demo Payment — Not a Real Transaction</span>
+                </div>
               </div>
             </div>
 
-            {/* Printable Registration Record Card */}
+            {/* Error banner if print or PDF fails */}
+            {printError && (
+              <div className="mb-4 p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2 text-left no-print">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{printError}</span>
+              </div>
+            )}
+
+            {/* Printable Registration Record Voucher */}
             <div
               id="student-registration-voucher"
               className="printable-record bg-white border border-slate-200 rounded-3xl p-6 sm:p-8 text-left space-y-5 shadow-sm mb-6"
@@ -358,15 +408,15 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
                       Nexora Academy
                     </h2>
                     <p className="text-[11px] text-slate-500 font-medium">
-                      Official Student Registration & Fee Voucher
+                      Official Student Registration & Demo Fee Voucher
                     </p>
                   </div>
                 </div>
 
                 <div className="text-right">
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                    <Clock className="w-3.5 h-3.5 text-amber-700" />
-                    Pending Verification
+                    <FlaskConical className="w-3.5 h-3.5 text-amber-700" />
+                    Demo Payment — Not a Real Transaction
                   </span>
                 </div>
               </div>
@@ -406,13 +456,13 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
                 <div className="p-3 bg-slate-50/70 rounded-xl border border-slate-100">
                   <span className="text-slate-400 font-medium block text-[11px]">Payment Method</span>
                   <span className="font-bold text-slate-900 flex items-center gap-1.5 mt-0.5">
-                    <CreditCard className="w-3.5 h-3.5 text-indigo-600" />
+                    <FlaskConical className="w-3.5 h-3.5 text-indigo-600" />
                     {submissionRecord.paymentMethod}
                   </span>
                 </div>
 
                 <div className="p-3 bg-slate-50/70 rounded-xl border border-slate-100">
-                  <span className="text-slate-400 font-medium block text-[11px]">Transaction ID / Reference</span>
+                  <span className="text-slate-400 font-medium block text-[11px]">Demo Transaction ID</span>
                   <span className="font-mono font-bold text-indigo-800 break-all">
                     {submissionRecord.transactionId}
                   </span>
@@ -448,32 +498,60 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
                 </div>
               )}
 
+              {/* Demo Disclaimer Box for Print */}
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-[11px] flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 text-amber-700 shrink-0" />
+                <span>
+                  <strong>DEMONSTRATION RECORD ONLY:</strong> No actual monetary transaction occurred. Not an official bank receipt.
+                </span>
+              </div>
+
               {/* Voucher footer info for print */}
               <div className="pt-3 border-t border-slate-200 flex flex-col sm:flex-row justify-between text-[11px] text-slate-400 gap-1">
-                <span>Database: Supabase PostgreSQL (Verified Insert)</span>
-                <span>Payment Status: Pending Verification</span>
+                <span>Database: Supabase PostgreSQL</span>
+                <span>Payment Status: Demo Payment — Not a Real Transaction</span>
               </div>
             </div>
 
-            {/* Print & PDF Action Buttons */}
+            {/* Print & PDF Action Buttons with Loading States */}
             <div className="no-print space-y-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <button
                   type="button"
                   onClick={handlePrint}
-                  className="w-full py-3 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase tracking-wider shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  disabled={isPrinting || isGeneratingPdf}
+                  className="w-full py-3.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase tracking-wider shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
                 >
-                  <Printer className="w-4 h-4 text-indigo-300" />
-                  Print Registration
+                  {isPrinting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-indigo-300" />
+                      Preparing Document...
+                    </>
+                  ) : (
+                    <>
+                      <Printer className="w-4 h-4 text-indigo-300" />
+                      Print Registration
+                    </>
+                  )}
                 </button>
 
                 <button
                   type="button"
                   onClick={handleDownloadPdf}
-                  className="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+                  disabled={isPrinting || isGeneratingPdf}
+                  className="w-full py-3.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
                 >
-                  <Download className="w-4 h-4" />
-                  Download PDF
+                  {isGeneratingPdf ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-white" />
+                      Generating Vector PDF...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-4 h-4" />
+                      Download PDF
+                    </>
+                  )}
                 </button>
               </div>
 
@@ -483,14 +561,17 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
                   onClick={() => {
                     setSubmitSuccess(false);
                     setSubmissionRecord(null);
+                    setPaymentSimulated(false);
+                    setDemoTransactionId('');
+                    setDemoSuccessMessage(null);
+                    setPrintError(null);
                     setFormData({
                       studentName: '',
                       whatsappNumber: '',
                       email: '',
                       courseName: 'Full Stack Web & Cloud Development',
                       hasScholarship: false,
-                      paymentMethod: 'JazzCash',
-                      transactionId: '',
+                      paymentMethod: 'JazzCash (Demo)',
                     });
                     setPhotoPreview(null);
                   }}
@@ -678,110 +759,116 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
             </div>
 
             {/* ============================================================== */}
-            {/* PAYMENT METHOD SELECTION (JAZZCASH, EASYPAISA, BANK, CASH)     */}
+            {/* DEMO-ONLY PAYMENT SYSTEM (NO REAL MONEY TRANSFERS)             */}
             {/* ============================================================== */}
-            <div className="space-y-4">
+            <div className="p-5 rounded-3xl bg-slate-50 border-2 border-indigo-100 space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-                  Preferred Payment Method <span className="text-rose-500">*</span>
-                </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5">
-                  {(['JazzCash', 'Easypaisa', 'Bank Transfer', 'Cash'] as const).map((method) => {
-                    const isSelected = formData.paymentMethod === method;
-                    return (
-                      <button
-                        key={method}
-                        type="button"
-                        onClick={() =>
-                          setFormData({
-                            ...formData,
-                            paymentMethod: method,
-                            transactionId: method === 'Cash' ? '' : formData.transactionId,
-                          })
-                        }
-                        className={`flex flex-col items-center justify-center p-3 rounded-2xl border text-xs font-bold transition-all cursor-pointer ${
-                          isSelected
-                            ? 'border-indigo-600 bg-indigo-50/80 text-indigo-700 shadow-xs ring-2 ring-indigo-500/20'
-                            : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-                        }`}
-                      >
-                        {method === 'JazzCash' && <Smartphone className="w-5 h-5 mb-1 text-amber-600" />}
-                        {method === 'Easypaisa' && <Wallet className="w-5 h-5 mb-1 text-emerald-600" />}
-                        {method === 'Bank Transfer' && <Building className="w-5 h-5 mb-1 text-blue-600" />}
-                        {method === 'Cash' && <CreditCard className="w-5 h-5 mb-1 text-slate-600" />}
-                        <span className="text-center">{method}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Recipient Account Details & Instructions Card */}
-              <div className="p-4 sm:p-5 rounded-2xl bg-slate-50 border border-slate-200/90 text-xs space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-200/80 pb-2.5">
-                  <span className="font-extrabold text-slate-900 flex items-center gap-1.5 uppercase tracking-wide text-[11px]">
-                    <Info className="w-4 h-4 text-indigo-600" />
-                    Recipient Account Details ({currentPaymentConfig.name})
-                  </span>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800">
-                    Verified Channel
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-extrabold text-slate-900 uppercase tracking-wider">
+                    Select Demo Payment Method <span className="text-rose-500">*</span>
+                  </label>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 flex items-center gap-1">
+                    <FlaskConical className="w-3 h-3" /> DEMO SANDBOX
                   </span>
                 </div>
 
-                <div className="space-y-1.5 text-slate-700">
-                  {currentPaymentConfig.bankName && (
-                    <div className="flex flex-col sm:flex-row sm:justify-between">
-                      <span className="text-slate-400 font-medium">Bank Name:</span>
-                      <span className="font-bold text-slate-900">{currentPaymentConfig.bankName}</span>
-                    </div>
+                {/* 3 Required Demo Options */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  {(['JazzCash (Demo)', 'Easypaisa (Demo)', 'Bank Transfer (Demo)'] as const).map(
+                    (method) => {
+                      const isSelected = formData.paymentMethod === method;
+                      return (
+                        <button
+                          key={method}
+                          type="button"
+                          onClick={() => {
+                            setFormData({ ...formData, paymentMethod: method });
+                            setPaymentSimulated(false);
+                            setDemoTransactionId('');
+                            setDemoSuccessMessage(null);
+                          }}
+                          className={`flex flex-col items-center justify-center p-3.5 rounded-2xl border text-xs font-bold transition-all cursor-pointer ${
+                            isSelected
+                              ? 'border-indigo-600 bg-indigo-50/90 text-indigo-800 shadow-xs ring-2 ring-indigo-500/30'
+                              : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          {method === 'JazzCash (Demo)' && (
+                            <Smartphone className="w-5 h-5 mb-1.5 text-amber-600" />
+                          )}
+                          {method === 'Easypaisa (Demo)' && (
+                            <Wallet className="w-5 h-5 mb-1.5 text-emerald-600" />
+                          )}
+                          {method === 'Bank Transfer (Demo)' && (
+                            <Building className="w-5 h-5 mb-1.5 text-blue-600" />
+                          )}
+                          <span className="text-center">{method}</span>
+                        </button>
+                      );
+                    }
                   )}
-
-                  <div className="flex flex-col sm:flex-row sm:justify-between">
-                    <span className="text-slate-400 font-medium">Account Title:</span>
-                    <span className="font-bold text-slate-900">{currentPaymentConfig.accountTitle}</span>
-                  </div>
-
-                  <div className="flex flex-col sm:flex-row sm:justify-between">
-                    <span className="text-slate-400 font-medium">
-                      {formData.paymentMethod === 'Bank Transfer' ? 'IBAN / Account Number:' : 'Mobile Account Number:'}
-                    </span>
-                    <span className="font-mono font-bold text-indigo-700 bg-white px-2 py-0.5 rounded border border-slate-200 select-all">
-                      {currentPaymentConfig.accountNumber}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="pt-2 border-t border-slate-200 text-slate-500 text-[11px] leading-relaxed">
-                  <span className="font-bold text-slate-700">Instructions:</span> {currentPaymentConfig.instructions}
                 </div>
               </div>
 
-              {/* Required Transaction ID / Reference Number */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-                  {currentPaymentConfig.trxLabel}{' '}
-                  {formData.paymentMethod !== 'Cash' ? (
-                    <span className="text-rose-500">* (Required)</span>
-                  ) : (
-                    <span className="text-slate-400 font-normal">(Optional for Counter Cash)</span>
-                  )}
-                </label>
-                <div className="relative">
-                  <Receipt className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-                  <input
-                    type="text"
-                    required={formData.paymentMethod !== 'Cash'}
-                    value={formData.transactionId}
-                    onChange={(e) => setFormData({ ...formData, transactionId: e.target.value })}
-                    placeholder={currentPaymentConfig.trxPlaceholder}
-                    maxLength={100}
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-mono font-medium text-slate-800 placeholder-slate-400"
-                  />
+              {/* Simulation Sandbox Card */}
+              <div className="bg-white p-4 rounded-2xl border border-slate-200 text-xs space-y-2.5 shadow-2xs">
+                <div className="flex items-center justify-between text-[11px] pb-2 border-b border-slate-100">
+                  <span className="font-bold text-slate-700">Simulated Gateway:</span>
+                  <span className="font-semibold text-slate-900">{activeConfig.sandboxChannel}</span>
                 </div>
-                <p className="mt-1 text-[11px] text-slate-500">
-                  Initial payment status will be recorded as <strong>Pending Verification</strong> until verified by admin.
+
+                <div className="flex flex-col sm:flex-row sm:justify-between text-[11px] gap-1">
+                  <span className="text-slate-400">Sandbox Target:</span>
+                  <span className="font-mono text-slate-600 bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
+                    {activeConfig.simulatedAccount}
+                  </span>
+                </div>
+
+                <p className="text-[11px] text-slate-500 leading-relaxed pt-1">
+                  {activeConfig.instructions}
                 </p>
+
+                {/* Simulate Payment Action Button */}
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={handleSimulatePayment}
+                    disabled={isSimulatingPayment}
+                    className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-xs uppercase tracking-wider shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                  >
+                    {isSimulatingPayment ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        Simulating Sandbox Transfer...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4 text-emerald-200" />
+                        Simulate Payment
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
+
+              {/* Exact Required Demo Success Message Banner */}
+              {demoSuccessMessage && (
+                <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-950 text-xs space-y-1.5 animate-in fade-in zoom-in-95">
+                  <div className="flex items-center gap-2 font-bold text-emerald-900">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>Demo Payment Successful!</span>
+                  </div>
+                  <p className="font-medium text-emerald-800">
+                    Demo Payment Successful! This is a demonstration only. No real money has been transferred.
+                  </p>
+                  <div className="pt-1.5 border-t border-emerald-200/80 flex items-center justify-between text-[11px]">
+                    <span className="text-emerald-700 font-semibold">Demo Reference:</span>
+                    <span className="font-mono font-bold text-emerald-900 bg-white px-2 py-0.5 rounded border border-emerald-300">
+                      {demoTransactionId}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Submit Button */}
@@ -794,7 +881,7 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
                 {isSubmitting ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
-                    Recording Registration & Payment Details...
+                    Submitting Registration to Database...
                   </>
                 ) : (
                   <>
@@ -810,7 +897,7 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
 
       {/* Database Verification Note */}
       <div className="text-center text-[11px] text-slate-400 no-print">
-        Connected to Supabase PostgreSQL • Protected by Row Level Security (RLS)
+        Connected to Supabase PostgreSQL • Demo Mode Protected by Row Level Security (RLS)
       </div>
     </div>
   );

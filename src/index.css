@@ -25,10 +25,10 @@
     background: #94a3b8;
   }
 
-  /* Print formatting for official receipts & reports */
+  /* Print formatting for official receipts & vouchers */
   @media print {
     @page {
-      margin: 10mm;
+      margin: 12mm;
       size: A4 portrait;
     }
     body {
@@ -37,28 +37,23 @@
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
-    body * {
-      visibility: hidden;
-    }
-    .printable-record, .printable-record * {
-      visibility: visible;
+    header, footer, nav, button, .no-print {
+      display: none !important;
     }
     .printable-record {
-      position: absolute;
-      left: 0;
-      top: 0;
+      display: block !important;
+      visibility: visible !important;
       width: 100% !important;
       max-width: 100% !important;
-      margin: 0 !important;
-      padding: 24px !important;
+      margin: 0 auto !important;
+      padding: 20px !important;
       box-shadow: none !important;
       border: 1px solid #cbd5e1 !important;
       border-radius: 12px !important;
       background: white !important;
     }
-    .no-print, header, footer, button, .no-print * {
-      display: none !important;
-      visibility: hidden !important;
+    .printable-record * {
+      visibility: visible !important;
     }
     .print-only {
       display: block !important;

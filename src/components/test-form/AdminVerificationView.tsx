@@ -2,24 +2,26 @@ import React, { useState, useEffect } from 'react';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { NexoraLogo } from '../common/NexoraLogo';
 import {
+  printRegistrationDocument,
+  downloadRegistrationPdf,
+  RegistrationRecordData,
+} from '../../utils/registrationDocument';
+import {
   Users,
-  ShieldCheck,
   Lock,
   Download,
   RefreshCw,
   Search,
   ArrowLeft,
-  Calendar,
   CheckCircle,
   AlertCircle,
-  BookOpen,
   UserCheck,
   CheckCircle2,
   Printer,
-  Clock,
-  CreditCard,
-  Receipt,
-  Check,
+  FlaskConical,
+  ShieldAlert,
+  Loader2,
+  FileText,
 } from 'lucide-react';
 
 interface StudentTestRecord {
@@ -50,6 +52,11 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
   const [lookupResult, setLookupResult] = useState<StudentTestRecord | null>(null);
   const [lookupError, setLookupError] = useState<string | null>(null);
 
+  // Print and PDF generation loading states
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
   // Admin access state
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     return sessionStorage.getItem('admin_test_auth') === 'true';
@@ -61,20 +68,103 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
   const [isLoading, setIsLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [isUpdatingStatus, setIsUpdatingStatus] = useState<string | null>(null);
 
   // Print handlers for student lookup result
   const handlePrint = () => {
-    window.print();
+    setActionError(null);
+    if (!lookupResult) {
+      setActionError('No verified record available to print. Please enter Reference ID and search first.');
+      return;
+    }
+
+    setIsPrinting(true);
+    try {
+      printRegistrationDocument({
+        id: lookupResult.id,
+        studentName: lookupResult.student_name,
+        whatsappNumber: lookupResult.whatsapp_number,
+        email: lookupResult.email,
+        courseName: lookupResult.course_name,
+        hasScholarship: lookupResult.has_scholarship,
+        paymentMethod: lookupResult.payment_method,
+        transactionId: lookupResult.transaction_id,
+        paymentStatus: lookupResult.payment_status || 'Demo Payment — Not a Real Transaction',
+        createdAt: lookupResult.created_at,
+        photoUrl: lookupResult.photo_url,
+      });
+    } catch (err: any) {
+      console.error('Print error:', err);
+      setActionError(err.message || 'Failed to open print preview.');
+    } finally {
+      setTimeout(() => setIsPrinting(false), 800);
+    }
   };
 
-  const handleDownloadPdf = () => {
-    const originalTitle = document.title;
-    document.title = `Registration_Voucher_${lookupResult?.id || 'Student'}`;
-    window.print();
-    setTimeout(() => {
-      document.title = originalTitle;
-    }, 1500);
+  const handleDownloadPdf = async () => {
+    setActionError(null);
+    if (!lookupResult) {
+      setActionError('No verified record available to download. Please enter Reference ID and search first.');
+      return;
+    }
+
+    setIsGeneratingPdf(true);
+    try {
+      await downloadRegistrationPdf({
+        id: lookupResult.id,
+        studentName: lookupResult.student_name,
+        whatsappNumber: lookupResult.whatsapp_number,
+        email: lookupResult.email,
+        courseName: lookupResult.course_name,
+        hasScholarship: lookupResult.has_scholarship,
+        paymentMethod: lookupResult.payment_method,
+        transactionId: lookupResult.transaction_id,
+        paymentStatus: lookupResult.payment_status || 'Demo Payment — Not a Real Transaction',
+        createdAt: lookupResult.created_at,
+        photoUrl: lookupResult.photo_url,
+      });
+    } catch (err: any) {
+      console.error('PDF generation error:', err);
+      setActionError(err.message || 'Failed to generate PDF document.');
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
+  // Row-level print & PDF for Admin Roster
+  const handlePrintRow = (r: StudentTestRecord) => {
+    printRegistrationDocument({
+      id: r.id,
+      studentName: r.student_name,
+      whatsappNumber: r.whatsapp_number,
+      email: r.email,
+      courseName: r.course_name,
+      hasScholarship: r.has_scholarship,
+      paymentMethod: r.payment_method,
+      transactionId: r.transaction_id,
+      paymentStatus: r.payment_status || 'Demo Payment — Not a Real Transaction',
+      createdAt: r.created_at,
+      photoUrl: r.photo_url,
+    });
+  };
+
+  const handleDownloadPdfRow = async (r: StudentTestRecord) => {
+    try {
+      await downloadRegistrationPdf({
+        id: r.id,
+        studentName: r.student_name,
+        whatsappNumber: r.whatsapp_number,
+        email: r.email,
+        courseName: r.course_name,
+        hasScholarship: r.has_scholarship,
+        paymentMethod: r.payment_method,
+        transactionId: r.transaction_id,
+        paymentStatus: r.payment_status || 'Demo Payment — Not a Real Transaction',
+        createdAt: r.created_at,
+        photoUrl: r.photo_url,
+      });
+    } catch (e: any) {
+      alert(`Error generating PDF for ${r.student_name}: ` + e.message);
+    }
   };
 
   // 1. Student self-verification by Reference ID & phone/email
@@ -82,6 +172,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
     e.preventDefault();
     setLookupError(null);
     setLookupResult(null);
+    setActionError(null);
 
     const cleanId = lookupSubmissionId.trim();
     const cleanLookup = lookupPhoneOrEmail.trim();
@@ -109,15 +200,20 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
       });
 
       if (!rpcErr && rpcRes && rpcRes.found) {
+        let extractedTrx = rpcRes.transaction_id;
+        if ((!extractedTrx || extractedTrx === 'N/A') && rpcRes.course_name?.includes('Trx:')) {
+          extractedTrx = rpcRes.course_name.split('Trx:')[1]?.replace(']', '').trim();
+        }
+
         setLookupResult({
           id: rpcRes.id,
           student_name: rpcRes.student_name,
           whatsapp_number: cleanLookup.includes('@') ? '' : cleanLookup,
           email: cleanLookup.includes('@') ? cleanLookup : '',
-          course_name: rpcRes.course_name,
-          payment_method: rpcRes.payment_method || 'Online',
-          transaction_id: rpcRes.transaction_id || 'CASH-COUNTER',
-          payment_status: rpcRes.payment_status || 'Pending Verification',
+          course_name: rpcRes.course_name?.split('[')[0].trim() || rpcRes.course_name,
+          payment_method: rpcRes.payment_method || 'JazzCash (Demo)',
+          transaction_id: extractedTrx || 'DEMO-TRX-SIMULATED',
+          payment_status: 'Demo Payment — Not a Real Transaction',
           has_scholarship: rpcRes.has_scholarship,
           created_at: rpcRes.created_at,
           photo_url: rpcRes.photo_url,
@@ -140,15 +236,20 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
         });
 
         if (found) {
+          let trxId = found.transaction_id;
+          if ((!trxId || trxId === 'N/A') && found.course_name?.includes('Trx:')) {
+            trxId = found.course_name.split('Trx:')[1]?.replace(']', '').trim();
+          }
+
           setLookupResult({
             id: found.id,
             student_name: found.student_name,
             whatsapp_number: found.whatsapp_number,
             email: found.email,
-            course_name: found.course_name,
-            payment_method: found.payment_method || 'Online',
-            transaction_id: found.transaction_id || (found.course_name?.includes('[Trx:') ? found.course_name.split('[Trx:')[1]?.replace(']', '').trim() : 'N/A'),
-            payment_status: found.payment_status || 'Pending Verification',
+            course_name: found.course_name.split('[')[0].trim(),
+            payment_method: found.payment_method?.includes('Demo') ? found.payment_method : `${found.payment_method} (Demo)`,
+            transaction_id: trxId || 'DEMO-TRX-SIMULATED',
+            payment_status: 'Demo Payment — Not a Real Transaction',
             has_scholarship: found.has_scholarship,
             created_at: found.created_at,
             photo_url: found.photo_url,
@@ -207,12 +308,19 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
         );
       }
 
-      // Map records to ensure payment_status has default if undefined
-      const mapped = (data || []).map((r: any) => ({
-        ...r,
-        payment_status: r.payment_status || 'Pending Verification',
-        transaction_id: r.transaction_id || (r.course_name?.includes('[Trx:') ? r.course_name.split('[Trx:')[1]?.replace(']', '').trim() : 'N/A'),
-      }));
+      const mapped = (data || []).map((r: any) => {
+        let trxId = r.transaction_id;
+        if ((!trxId || trxId === 'N/A') && r.course_name?.includes('Trx:')) {
+          trxId = r.course_name.split('Trx:')[1]?.replace(']', '').trim();
+        }
+        return {
+          ...r,
+          course_name: r.course_name?.split('[')[0].trim() || r.course_name,
+          payment_method: r.payment_method?.includes('Demo') ? r.payment_method : `${r.payment_method} (Demo)`,
+          payment_status: 'Demo Payment — Not a Real Transaction',
+          transaction_id: trxId || 'DEMO-TRX-SIMULATED',
+        };
+      });
 
       setRecords(mapped);
     } catch (err: any) {
@@ -223,45 +331,13 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
     }
   };
 
-  // 4. Toggle payment status between 'Pending Verification' and 'Verified'
-  const handleTogglePaymentStatus = async (recordId: string, currentStatus?: string) => {
-    const newStatus = currentStatus === 'Verified' ? 'Pending Verification' : 'Verified';
-    setIsUpdatingStatus(recordId);
-
-    // Optimistic UI update
-    setRecords((prev) =>
-      prev.map((r) => (r.id === recordId ? { ...r, payment_status: newStatus } : r))
-    );
-
-    try {
-      // 1. Try secure RPC if configured
-      const { error: rpcErr } = await supabase.rpc('update_test_submission_status', {
-        p_admin_pass: 'Farhana@2026',
-        p_submission_id: recordId,
-        p_new_status: newStatus,
-      });
-
-      if (rpcErr) {
-        // Fallback: direct update
-        await supabase
-          .from('student_test_records')
-          .update({ payment_status: newStatus })
-          .eq('id', recordId);
-      }
-    } catch (err) {
-      console.warn('Status update sync:', err);
-    } finally {
-      setIsUpdatingStatus(null);
-    }
-  };
-
   useEffect(() => {
     if (isAuthenticated && activeMode === 'admin_table') {
       fetchSubmissions();
     }
   }, [isAuthenticated, activeMode]);
 
-  // CSV Export with Payment Method, Transaction ID, and Status
+  // CSV Export with Demo Information
   const handleExportCSV = () => {
     if (records.length === 0) return;
 
@@ -274,7 +350,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
       'Course Name',
       'Has Scholarship',
       'Payment Method',
-      'Transaction ID / Ref',
+      'Demo Transaction ID',
       'Payment Status',
       'Submission Date & Time',
     ];
@@ -287,8 +363,8 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
       r.course_name,
       r.has_scholarship ? 'Yes' : 'No',
       r.payment_method,
-      r.transaction_id || 'N/A',
-      r.payment_status || 'Pending Verification',
+      r.transaction_id || 'DEMO-TRX-SIMULATED',
+      'Demo Payment — Not a Real Transaction',
       new Date(r.created_at).toLocaleString('en-PK'),
     ]);
 
@@ -303,7 +379,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `Class_Registrations_${new Date().toISOString().split('T')[0]}.csv`;
+    link.download = `Class_Demo_Registrations_${new Date().toISOString().split('T')[0]}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -315,11 +391,8 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
       r.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       r.whatsapp_number?.includes(searchTerm) ||
       r.course_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      r.transaction_id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      r.payment_status?.toLowerCase().includes(searchTerm.toLowerCase())
+      r.transaction_id?.toLowerCase().includes(searchTerm.toLowerCase())
   );
-
-  const isVerifiedPayment = lookupResult?.payment_status === 'Verified' || lookupResult?.payment_status === 'Approved';
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
@@ -371,7 +444,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
                 Verify Your Registration
               </h2>
               <p className="text-xs text-slate-500">
-                Verify your submission and check payment verification status in Supabase.
+                Lookup your saved submission record in Supabase database.
               </p>
             </div>
           </div>
@@ -386,7 +459,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
                 required
                 value={lookupSubmissionId}
                 onChange={(e) => setLookupSubmissionId(e.target.value)}
-                placeholder="e.g. 26b23f23-3d53-48f8-ab59-6158d0a5b949"
+                placeholder="e.g. 44012089-c11b-4dff-b251-bf0c348aa825"
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-300 font-mono text-xs focus:ring-2 focus:ring-indigo-500"
               />
             </div>
@@ -400,7 +473,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
                 required
                 value={lookupPhoneOrEmail}
                 onChange={(e) => setLookupPhoneOrEmail(e.target.value)}
-                placeholder="student@example.com or phone"
+                placeholder="ali@gmail.com or 03001234567"
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-medium focus:ring-2 focus:ring-indigo-500"
               />
             </div>
@@ -432,34 +505,31 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
           </form>
 
           {/* ============================================================== */}
-          {/* VERIFICATION RESULT CARD & REQUIRED STATUS MESSAGES            */}
+          {/* VERIFICATION RESULT CARD & REQUIRED DEMO MESSAGE               */}
           {/* ============================================================== */}
           {lookupResult && (
             <div className="mt-6 space-y-4 animate-in fade-in zoom-in-95">
-              {/* Conditional Required Status Message Banner */}
-              {isVerifiedPayment ? (
-                <div className="p-4 sm:p-5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-950 flex items-start gap-3 shadow-xs">
-                  <CheckCircle2 className="w-6 h-6 text-emerald-600 shrink-0 mt-0.5" />
-                  <div>
-                    <h3 className="font-extrabold text-sm sm:text-base text-emerald-900">
-                      Your payment has been verified successfully. Thank you!
-                    </h3>
-                    <p className="text-xs text-emerald-700 mt-0.5 font-medium">
-                      Your fee has been verified by the administration. Your seat is confirmed.
-                    </p>
+              {/* Exact Required Demo Success Message Banner */}
+              <div className="p-4 sm:p-5 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-950 flex items-start gap-3 shadow-xs no-print">
+                <CheckCircle2 className="w-6 h-6 text-emerald-600 shrink-0 mt-0.5" />
+                <div>
+                  <h3 className="font-extrabold text-sm sm:text-base text-emerald-900">
+                    Demo Payment Successful!
+                  </h3>
+                  <p className="text-xs sm:text-sm text-emerald-800 mt-0.5 font-semibold leading-relaxed">
+                    Demo Payment Successful! This is a demonstration only. No real money has been transferred.
+                  </p>
+                  <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-900 text-[11px] font-bold">
+                    <span>Status:</span>
+                    <span className="font-extrabold">Demo Payment — Not a Real Transaction</span>
                   </div>
                 </div>
-              ) : (
-                <div className="p-4 sm:p-5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 flex items-start gap-3 shadow-xs">
-                  <Clock className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
-                  <div>
-                    <h3 className="font-extrabold text-sm sm:text-base text-amber-900">
-                      Payment Verification Pending
-                    </h3>
-                    <p className="text-xs text-amber-800 mt-0.5 font-medium leading-relaxed">
-                      Your registration has been submitted successfully. Your payment details have been received and are pending verification.
-                    </p>
-                  </div>
+              </div>
+
+              {actionError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2 no-print">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{actionError}</span>
                 </div>
               )}
 
@@ -473,28 +543,13 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
                     <NexoraLogo size="sm" />
                     <div>
                       <h4 className="font-extrabold text-slate-900 uppercase">Nexora Academy</h4>
-                      <p className="text-[10px] text-slate-500">Student Registration & Verification Voucher</p>
+                      <p className="text-[10px] text-slate-500">Student Registration & Demo Voucher</p>
                     </div>
                   </div>
 
-                  <span
-                    className={`px-2.5 py-1 rounded-full text-[11px] font-bold border inline-flex items-center gap-1.5 ${
-                      isVerifiedPayment
-                        ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
-                        : 'bg-amber-100 text-amber-900 border-amber-300'
-                    }`}
-                  >
-                    {isVerifiedPayment ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 text-emerald-700" />
-                        Verified
-                      </>
-                    ) : (
-                      <>
-                        <Clock className="w-3.5 h-3.5 text-amber-700" />
-                        Pending Verification
-                      </>
-                    )}
+                  <span className="px-2.5 py-1 rounded-full text-[11px] font-bold border inline-flex items-center gap-1.5 bg-amber-100 text-amber-900 border-amber-300">
+                    <FlaskConical className="w-3.5 h-3.5 text-amber-700" />
+                    Demo Payment — Not a Real Transaction
                   </span>
                 </div>
 
@@ -520,8 +575,13 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
                   </div>
 
                   <div className="flex justify-between py-1 border-b border-slate-100">
-                    <span className="text-slate-400">Transaction ID / Ref:</span>
-                    <span className="font-mono font-bold text-indigo-900">{lookupResult.transaction_id || 'CASH-COUNTER'}</span>
+                    <span className="text-slate-400">Demo Transaction ID:</span>
+                    <span className="font-mono font-bold text-indigo-900">{lookupResult.transaction_id}</span>
+                  </div>
+
+                  <div className="flex justify-between py-1 border-b border-slate-100">
+                    <span className="text-slate-400">Payment Status:</span>
+                    <span className="font-bold text-amber-800">Demo Payment — Not a Real Transaction</span>
                   </div>
 
                   <div className="flex justify-between py-1 border-b border-slate-100">
@@ -536,26 +596,54 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
                     </span>
                   </div>
                 </div>
+
+                {/* Demo Disclaimer in printable record */}
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-600 text-[11px] flex items-center gap-2">
+                  <ShieldAlert className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>
+                    <strong>DEMO RECORD ONLY:</strong> No actual monetary transaction occurred. Not an official bank receipt.
+                  </span>
+                </div>
               </div>
 
-              {/* Print and PDF Action Buttons */}
+              {/* Print and PDF Action Buttons with Loading States */}
               <div className="no-print grid grid-cols-2 gap-3 pt-2">
                 <button
                   type="button"
                   onClick={handlePrint}
-                  className="py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                  disabled={isPrinting || isGeneratingPdf}
+                  className="py-3 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-60"
                 >
-                  <Printer className="w-3.5 h-3.5 text-indigo-300" />
-                  Print Registration
+                  {isPrinting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-300" />
+                      Printing...
+                    </>
+                  ) : (
+                    <>
+                      <Printer className="w-3.5 h-3.5 text-indigo-300" />
+                      Print Registration
+                    </>
+                  )}
                 </button>
 
                 <button
                   type="button"
                   onClick={handleDownloadPdf}
-                  className="py-2.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                  disabled={isPrinting || isGeneratingPdf}
+                  className="py-3 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-60"
                 >
-                  <Download className="w-3.5 h-3.5" />
-                  Download PDF
+                  {isGeneratingPdf ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
+                      Generating PDF...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-3.5 h-3.5" />
+                      Download PDF
+                    </>
+                  )}
                 </button>
               </div>
             </div>
@@ -581,7 +669,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
                 Class Administrator Access
               </h2>
               <p className="text-xs text-slate-500 mb-6">
-                Enter your admin passcode to verify student payments and download the class roster.
+                Enter your admin passcode to view student registrations and demo payment records.
               </p>
 
               {authError && (
@@ -611,7 +699,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
           ) : (
             <div className="space-y-6">
               {/* Summary KPIs */}
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 no-print">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 no-print">
                 <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm flex items-center justify-between">
                   <div>
                     <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
@@ -630,30 +718,15 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
                 <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm flex items-center justify-between">
                   <div>
                     <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                      Verified Payments
-                    </span>
-                    <p className="text-3xl font-extrabold text-emerald-600 mt-1">
-                      {records.filter((r) => r.payment_status === 'Verified' || r.payment_status === 'Approved').length}
-                    </p>
-                    <span className="text-[11px] text-emerald-700">Confirmed seats</span>
-                  </div>
-                  <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                    <CheckCircle2 className="w-6 h-6" />
-                  </div>
-                </div>
-
-                <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm flex items-center justify-between">
-                  <div>
-                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                      Pending Verification
+                      Demo Payments
                     </span>
                     <p className="text-3xl font-extrabold text-amber-600 mt-1">
-                      {records.filter((r) => r.payment_status !== 'Verified' && r.payment_status !== 'Approved').length}
+                      {records.length}
                     </p>
-                    <span className="text-[11px] text-amber-700">Awaiting check</span>
+                    <span className="text-[11px] text-amber-700">Simulated / Non-Monetary</span>
                   </div>
                   <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
-                    <Clock className="w-6 h-6" />
+                    <FlaskConical className="w-6 h-6" />
                   </div>
                 </div>
 
@@ -681,7 +754,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Search name, phone, TID, status..."
+                    placeholder="Search name, phone, TRX ID..."
                     className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-300 text-xs font-medium focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
@@ -731,10 +804,10 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
                         <th className="py-3 px-4">Student Name</th>
                         <th className="py-3 px-4">WhatsApp</th>
                         <th className="py-3 px-4">Course Enrolled</th>
-                        <th className="py-3 px-4">Method</th>
-                        <th className="py-3 px-4">Transaction / Ref</th>
+                        <th className="py-3 px-4">Demo Method</th>
+                        <th className="py-3 px-4">Demo TRX ID</th>
                         <th className="py-3 px-4 text-center">Payment Status</th>
-                        <th className="py-3 px-4 text-right">Action / Date</th>
+                        <th className="py-3 px-4 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 font-medium">
@@ -747,98 +820,75 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
                           </td>
                         </tr>
                       ) : (
-                        filteredRecords.map((r) => {
-                          const isVerified = r.payment_status === 'Verified' || r.payment_status === 'Approved';
-                          return (
-                            <tr key={r.id} className="hover:bg-slate-50/70 transition-colors">
-                              <td className="py-3 px-4">
-                                <div className="flex items-center gap-2.5">
-                                  {r.photo_url ? (
-                                    <img
-                                      src={r.photo_url}
-                                      alt=""
-                                      className="w-8 h-8 rounded-lg object-cover border border-slate-200"
-                                    />
-                                  ) : (
-                                    <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-[10px]">
-                                      {r.student_name.slice(0, 2).toUpperCase()}
-                                    </div>
-                                  )}
-                                  <div>
-                                    <span className="font-bold text-slate-900 block">{r.student_name}</span>
-                                    <span className="text-[10px] text-slate-400 font-mono">{r.email}</span>
+                        filteredRecords.map((r) => (
+                          <tr key={r.id} className="hover:bg-slate-50/70 transition-colors">
+                            <td className="py-3 px-4">
+                              <div className="flex items-center gap-2.5">
+                                {r.photo_url ? (
+                                  <img
+                                    src={r.photo_url}
+                                    alt=""
+                                    className="w-8 h-8 rounded-lg object-cover border border-slate-200"
+                                  />
+                                ) : (
+                                  <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-[10px]">
+                                    {r.student_name.slice(0, 2).toUpperCase()}
                                   </div>
+                                )}
+                                <div>
+                                  <span className="font-bold text-slate-900 block">{r.student_name}</span>
+                                  <span className="text-[10px] text-slate-400 font-mono">{r.email}</span>
                                 </div>
-                              </td>
+                              </div>
+                            </td>
 
-                              <td className="py-3 px-4 font-mono text-slate-600">{r.whatsapp_number}</td>
+                            <td className="py-3 px-4 font-mono text-slate-600">{r.whatsapp_number}</td>
 
-                              <td className="py-3 px-4">
-                                <span className="font-semibold text-indigo-900">{r.course_name}</span>
-                              </td>
+                            <td className="py-3 px-4">
+                              <span className="font-semibold text-indigo-900">{r.course_name}</span>
+                            </td>
 
-                              <td className="py-3 px-4">
-                                <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold text-[11px]">
-                                  {r.payment_method}
-                                </span>
-                              </td>
+                            <td className="py-3 px-4">
+                              <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 font-semibold text-[11px] border border-indigo-100">
+                                {r.payment_method}
+                              </span>
+                            </td>
 
-                              <td className="py-3 px-4">
-                                <span className="font-mono font-bold text-indigo-700 text-[11px] bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
-                                  {r.transaction_id || 'N/A'}
-                                </span>
-                              </td>
+                            <td className="py-3 px-4">
+                              <span className="font-mono font-bold text-slate-700 text-[11px] bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
+                                {r.transaction_id || 'DEMO-TRX'}
+                              </span>
+                            </td>
 
-                              <td className="py-3 px-4 text-center">
-                                <span
-                                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border ${
-                                    isVerified
-                                      ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
-                                      : 'bg-amber-100 text-amber-900 border-amber-300'
-                                  }`}
+                            <td className="py-3 px-4 text-center">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border bg-amber-100 text-amber-900 border-amber-300">
+                                <FlaskConical className="w-3 h-3 text-amber-700" />
+                                Demo Payment
+                              </span>
+                            </td>
+
+                            <td className="py-3 px-4 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handlePrintRow(r)}
+                                  title="Print Voucher"
+                                  className="p-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-100 hover:text-slate-900 cursor-pointer transition-colors"
                                 >
-                                  {isVerified ? (
-                                    <>
-                                      <CheckCircle2 className="w-3 h-3 text-emerald-700" />
-                                      Verified
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Clock className="w-3 h-3 text-amber-700" />
-                                      Pending
-                                    </>
-                                  )}
-                                </span>
-                              </td>
-
-                              <td className="py-3 px-4 text-right">
-                                <div className="flex items-center justify-end gap-2">
-                                  <button
-                                    onClick={() => handleTogglePaymentStatus(r.id, r.payment_status)}
-                                    disabled={isUpdatingStatus === r.id}
-                                    title={isVerified ? 'Mark as Pending' : 'Mark as Verified'}
-                                    className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-                                      isVerified
-                                        ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                                        : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-xs'
-                                    }`}
-                                  >
-                                    {isUpdatingStatus === r.id ? (
-                                      <RefreshCw className="w-3 h-3 animate-spin" />
-                                    ) : isVerified ? (
-                                      'Revert'
-                                    ) : (
-                                      'Verify Payment'
-                                    )}
-                                  </button>
-                                  <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">
-                                    {new Date(r.created_at).toLocaleDateString('en-PK')}
-                                  </span>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })
+                                  <Printer className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDownloadPdfRow(r)}
+                                  title="Download PDF"
+                                  className="p-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 cursor-pointer transition-colors shadow-2xs"
+                                >
+                                  <Download className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
                       )}
                     </tbody>
                   </table>
