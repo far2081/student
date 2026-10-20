@@ -166,10 +166,7 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
             <div className="flex items-center gap-3">
               <NexoraLogo size="sm" />
               <div>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-300 bg-white/10 px-2.5 py-0.5 rounded-full">
-                  Official Class Registration Test
-                </span>
-                <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight mt-1">
+                <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
                   Student Registration Form
                 </h1>
               </div>
