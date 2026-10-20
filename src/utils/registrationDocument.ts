@@ -8,6 +8,7 @@ export interface RegistrationRecordData {
   email: string;
   courseName: string;
   hasScholarship?: boolean;
+  scholarshipCategory?: string;
   paymentMethod: string;
   transactionId?: string;
   paymentStatus: string;
@@ -149,7 +150,10 @@ export const downloadRegistrationPdf = async (record: RegistrationRecordData): P
     addFieldRow('Payment Status:', record.paymentStatus);
   }
   if (record.hasScholarship !== undefined) {
-    addFieldRow('Scholarship Request:', record.hasScholarship ? 'Yes, Scholarship Applied' : 'Standard Admission (No)');
+    const scholarshipText = record.hasScholarship
+      ? (record.scholarshipCategory ? `Yes, Applied (${record.scholarshipCategory})` : 'Yes, Scholarship Applied')
+      : 'Standard Admission (No)';
+    addFieldRow('Scholarship Request:', scholarshipText);
   }
   if (record.createdAt) {
     const formattedDate = new Date(record.createdAt).toLocaleString('en-PK', {
@@ -421,7 +425,11 @@ export const printRegistrationDocument = (record: RegistrationRecordData): void 
             </div>
             <div class="item">
               <div class="item-label">Scholarship Status</div>
-              <div class="item-value">${record.hasScholarship ? 'Yes, Applied' : 'Standard'}</div>
+              <div class="item-value">${
+                record.hasScholarship
+                  ? (record.scholarshipCategory ? `Yes, Applied (${record.scholarshipCategory})` : 'Yes, Applied')
+                  : 'Standard Admission (No)'
+              }</div>
             </div>
             <div class="item">
               <div class="item-label">Registration Date</div>

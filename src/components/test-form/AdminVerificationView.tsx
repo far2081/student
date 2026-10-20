@@ -32,11 +32,58 @@ interface StudentTestRecord {
   course_name: string;
   photo_url?: string;
   has_scholarship: boolean;
+  scholarship_category?: string;
   payment_method: string;
   transaction_id?: string;
   payment_status?: string;
   created_at: string;
 }
+
+const parseRecordMetadata = (r: any) => {
+  const cleanCourse = r.course_name?.split('[')[0].trim() || r.course_name || '';
+  let paymentMethod = r.payment_method || 'Cash Payment';
+  let trxId = r.transaction_id || '';
+  let scholarshipCat = r.scholarship_category || '';
+
+  if (r.course_name && r.course_name.includes('[')) {
+    const metaStr = r.course_name.split('[')[1]?.replace(']', '') || '';
+    const parts = metaStr.split('|').map((s: string) => s.trim());
+    if (
+      parts[0] &&
+      (parts[0].includes('Cash') ||
+        parts[0].includes('Demo') ||
+        parts[0].includes('Online') ||
+        parts[0].includes('Bank'))
+    ) {
+      paymentMethod = parts[0];
+    }
+    for (const part of parts) {
+      if (part.startsWith('Trx:')) {
+        trxId = part.replace('Trx:', '').trim();
+      } else if (part.startsWith('Scholarship:')) {
+        scholarshipCat = part.replace('Scholarship:', '').trim();
+      }
+    }
+  }
+
+  // Normalize payment method label
+  if (paymentMethod === 'Cash' || paymentMethod === 'Cash Payment') {
+    paymentMethod = 'Cash Payment';
+  } else if (!paymentMethod.includes('Demo') && paymentMethod !== 'Cash Payment') {
+    paymentMethod = `${paymentMethod} (Demo)`;
+  }
+
+  if (!trxId || trxId === 'N/A') {
+    trxId = paymentMethod === 'Cash Payment' ? 'CASH-REC-SIMULATED' : 'DEMO-TRX-SIMULATED';
+  }
+
+  return {
+    cleanCourse,
+    paymentMethod,
+    trxId,
+    scholarshipCat,
+  };
+};
 
 interface AdminVerificationViewProps {
   onBackToForm: () => void;
@@ -86,6 +133,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
         email: lookupResult.email,
         courseName: lookupResult.course_name,
         hasScholarship: lookupResult.has_scholarship,
+        scholarshipCategory: lookupResult.scholarship_category,
         paymentMethod: lookupResult.payment_method,
         transactionId: lookupResult.transaction_id,
         paymentStatus: lookupResult.payment_status || 'Demo Payment — Not a Real Transaction',
@@ -116,6 +164,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
         email: lookupResult.email,
         courseName: lookupResult.course_name,
         hasScholarship: lookupResult.has_scholarship,
+        scholarshipCategory: lookupResult.scholarship_category,
         paymentMethod: lookupResult.payment_method,
         transactionId: lookupResult.transaction_id,
         paymentStatus: lookupResult.payment_status || 'Demo Payment — Not a Real Transaction',
@@ -139,6 +188,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
       email: r.email,
       courseName: r.course_name,
       hasScholarship: r.has_scholarship,
+      scholarshipCategory: r.scholarship_category,
       paymentMethod: r.payment_method,
       transactionId: r.transaction_id,
       paymentStatus: r.payment_status || 'Demo Payment — Not a Real Transaction',
@@ -156,6 +206,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
         email: r.email,
         courseName: r.course_name,
         hasScholarship: r.has_scholarship,
+        scholarshipCategory: r.scholarship_category,
         paymentMethod: r.payment_method,
         transactionId: r.transaction_id,
         paymentStatus: r.payment_status || 'Demo Payment — Not a Real Transaction',
@@ -200,21 +251,19 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
       });
 
       if (!rpcErr && rpcRes && rpcRes.found) {
-        let extractedTrx = rpcRes.transaction_id;
-        if ((!extractedTrx || extractedTrx === 'N/A') && rpcRes.course_name?.includes('Trx:')) {
-          extractedTrx = rpcRes.course_name.split('Trx:')[1]?.replace(']', '').trim();
-        }
+        const meta = parseRecordMetadata(rpcRes);
 
         setLookupResult({
           id: rpcRes.id,
           student_name: rpcRes.student_name,
           whatsapp_number: cleanLookup.includes('@') ? '' : cleanLookup,
           email: cleanLookup.includes('@') ? cleanLookup : '',
-          course_name: rpcRes.course_name?.split('[')[0].trim() || rpcRes.course_name,
-          payment_method: rpcRes.payment_method || 'JazzCash (Demo)',
-          transaction_id: extractedTrx || 'DEMO-TRX-SIMULATED',
+          course_name: meta.cleanCourse,
+          payment_method: meta.paymentMethod,
+          transaction_id: meta.trxId,
           payment_status: 'Demo Payment — Not a Real Transaction',
           has_scholarship: rpcRes.has_scholarship,
+          scholarship_category: meta.scholarshipCat || (rpcRes.has_scholarship ? 'Applied' : undefined),
           created_at: rpcRes.created_at,
           photo_url: rpcRes.photo_url,
         });
@@ -236,21 +285,19 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
         });
 
         if (found) {
-          let trxId = found.transaction_id;
-          if ((!trxId || trxId === 'N/A') && found.course_name?.includes('Trx:')) {
-            trxId = found.course_name.split('Trx:')[1]?.replace(']', '').trim();
-          }
+          const meta = parseRecordMetadata(found);
 
           setLookupResult({
             id: found.id,
             student_name: found.student_name,
             whatsapp_number: found.whatsapp_number,
             email: found.email,
-            course_name: found.course_name.split('[')[0].trim(),
-            payment_method: found.payment_method?.includes('Demo') ? found.payment_method : `${found.payment_method} (Demo)`,
-            transaction_id: trxId || 'DEMO-TRX-SIMULATED',
+            course_name: meta.cleanCourse,
+            payment_method: meta.paymentMethod,
+            transaction_id: meta.trxId,
             payment_status: 'Demo Payment — Not a Real Transaction',
             has_scholarship: found.has_scholarship,
+            scholarship_category: meta.scholarshipCat || (found.has_scholarship ? 'Applied' : undefined),
             created_at: found.created_at,
             photo_url: found.photo_url,
           });
@@ -309,16 +356,14 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
       }
 
       const mapped = (data || []).map((r: any) => {
-        let trxId = r.transaction_id;
-        if ((!trxId || trxId === 'N/A') && r.course_name?.includes('Trx:')) {
-          trxId = r.course_name.split('Trx:')[1]?.replace(']', '').trim();
-        }
+        const meta = parseRecordMetadata(r);
         return {
           ...r,
-          course_name: r.course_name?.split('[')[0].trim() || r.course_name,
-          payment_method: r.payment_method?.includes('Demo') ? r.payment_method : `${r.payment_method} (Demo)`,
+          course_name: meta.cleanCourse,
+          payment_method: meta.paymentMethod,
           payment_status: 'Demo Payment — Not a Real Transaction',
-          transaction_id: trxId || 'DEMO-TRX-SIMULATED',
+          transaction_id: meta.trxId,
+          scholarship_category: meta.scholarshipCat || (r.has_scholarship ? 'Applied' : undefined),
         };
       });
 
@@ -349,6 +394,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
       'Email Address',
       'Course Name',
       'Has Scholarship',
+      'Scholarship Category',
       'Payment Method',
       'Demo Transaction ID',
       'Payment Status',
@@ -362,6 +408,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
       r.email,
       r.course_name,
       r.has_scholarship ? 'Yes' : 'No',
+      r.has_scholarship ? (r.scholarship_category || 'Applied') : 'N/A',
       r.payment_method,
       r.transaction_id || 'DEMO-TRX-SIMULATED',
       'Demo Payment — Not a Real Transaction',
@@ -586,7 +633,11 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
 
                   <div className="flex justify-between py-1 border-b border-slate-100">
                     <span className="text-slate-400">Scholarship Status:</span>
-                    <span className="font-medium">{lookupResult.has_scholarship ? 'Applied' : 'Standard'}</span>
+                    <span className="font-semibold text-slate-800">
+                      {lookupResult.has_scholarship
+                        ? (lookupResult.scholarship_category ? `Applied (${lookupResult.scholarship_category})` : 'Yes, Applied')
+                        : 'Standard Admission (No)'}
+                    </span>
                   </div>
 
                   <div className="flex justify-between pt-1 text-[11px]">
@@ -804,7 +855,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
                         <th className="py-3 px-4">Student Name</th>
                         <th className="py-3 px-4">WhatsApp</th>
                         <th className="py-3 px-4">Course Enrolled</th>
-                        <th className="py-3 px-4">Demo Method</th>
+                        <th className="py-3 px-4">Payment Method</th>
                         <th className="py-3 px-4">Demo TRX ID</th>
                         <th className="py-3 px-4 text-center">Payment Status</th>
                         <th className="py-3 px-4 text-right">Actions</th>
@@ -845,7 +896,12 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
                             <td className="py-3 px-4 font-mono text-slate-600">{r.whatsapp_number}</td>
 
                             <td className="py-3 px-4">
-                              <span className="font-semibold text-indigo-900">{r.course_name}</span>
+                              <span className="font-semibold text-indigo-900 block">{r.course_name}</span>
+                              {r.has_scholarship && (
+                                <span className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-200">
+                                  Scholarship: {r.scholarship_category || 'Applied'}
+                                </span>
+                              )}
                             </td>
 
                             <td className="py-3 px-4">

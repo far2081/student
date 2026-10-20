@@ -22,6 +22,7 @@ import {
   Building,
   Smartphone,
   Wallet,
+  Banknote,
   Receipt,
   Sparkles,
   FlaskConical,
@@ -34,7 +35,20 @@ interface StudentTestFormProps {
   onOpenAdmin: () => void;
 }
 
-export type DemoPaymentMethodType = 'JazzCash (Demo)' | 'Easypaisa (Demo)' | 'Bank Transfer (Demo)';
+export type DemoPaymentMethodType =
+  | 'Cash Payment'
+  | 'JazzCash (Demo)'
+  | 'Easypaisa (Demo)'
+  | 'Bank Transfer (Demo)';
+
+export const SCHOLARSHIP_OPTIONS = [
+  { value: 'Merit-Based', label: 'Merit-Based (High Academic Records)' },
+  { value: 'Need-Based', label: 'Need-Based (Financial Hardship)' },
+  { value: 'Female Empowerment', label: 'Female Empowerment in Tech' },
+  { value: 'Orphan / Disability', label: 'Orphan / Special Ability' },
+  { value: 'Hafiz-e-Quran', label: 'Hafiz-e-Quran' },
+  { value: 'Other', label: 'Other Specific Consideration' },
+];
 
 export const DEMO_PAYMENT_CONFIG: Record<
   DemoPaymentMethodType,
@@ -43,9 +57,17 @@ export const DEMO_PAYMENT_CONFIG: Record<
     sandboxChannel: string;
     simulatedAccount: string;
     instructions: string;
-    icon: 'smartphone' | 'wallet' | 'building';
+    icon: 'banknote' | 'smartphone' | 'wallet' | 'building';
   }
 > = {
+  'Cash Payment': {
+    name: 'Cash Payment',
+    sandboxChannel: 'Campus Admission Desk / On-Site Cash Counter',
+    simulatedAccount: 'Nexora Academy Accounts Desk (Demo Cash Voucher)',
+    instructions:
+      'Simulate an on-site cash counter payment. A demo counter deposit receipt reference is generated without requiring any real cash or gateway.',
+    icon: 'banknote',
+  },
   'JazzCash (Demo)': {
     name: 'JazzCash (Demo)',
     sandboxChannel: 'JazzCash Sandbox Simulation Gateway',
@@ -79,7 +101,8 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
     email: '',
     courseName: 'Full Stack Web & Cloud Development',
     hasScholarship: false,
-    paymentMethod: 'JazzCash (Demo)' as DemoPaymentMethodType,
+    scholarshipCategory: 'Merit-Based',
+    paymentMethod: 'Cash Payment' as DemoPaymentMethodType,
   });
 
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
@@ -181,7 +204,9 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
     setTimeout(() => {
       // Generate realistic demo transaction ID
       const prefix =
-        formData.paymentMethod === 'JazzCash (Demo)'
+        formData.paymentMethod === 'Cash Payment'
+          ? 'CASH-REC'
+          : formData.paymentMethod === 'JazzCash (Demo)'
           ? 'DEMO-JC'
           : formData.paymentMethod === 'Easypaisa (Demo)'
           ? 'DEMO-EP'
@@ -237,7 +262,9 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
     let finalTrx = demoTransactionId;
     if (!paymentSimulated || !finalTrx) {
       const prefix =
-        formData.paymentMethod === 'JazzCash (Demo)'
+        formData.paymentMethod === 'Cash Payment'
+          ? 'CASH-REC'
+          : formData.paymentMethod === 'JazzCash (Demo)'
           ? 'DEMO-JC'
           : formData.paymentMethod === 'Easypaisa (Demo)'
           ? 'DEMO-EP'
@@ -263,16 +290,24 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
       const demoStatus = 'Demo Payment — Not a Real Transaction';
       const nowIso = new Date().toISOString();
 
+      // Database payment method mapping to satisfy check constraint
+      const dbPaymentMethod =
+        formData.paymentMethod === 'Cash Payment'
+          ? 'Cash'
+          : formData.paymentMethod === 'Bank Transfer (Demo)'
+          ? 'Bank Transfer'
+          : 'Online';
+
       // 1. Full payload targeting Supabase
       const fullPayload: any = {
         id: newRefId,
         student_name: formData.studentName.trim(),
         whatsapp_number: formData.whatsappNumber.trim(),
         email: formData.email.trim().toLowerCase(),
-        course_name: formData.courseName.trim(),
+        course_name: `${formData.courseName.trim()}${formData.hasScholarship ? ` [Scholarship: ${formData.scholarshipCategory}]` : ''}`,
         photo_url: photoPreview || null,
         has_scholarship: formData.hasScholarship,
-        payment_method: formData.paymentMethod,
+        payment_method: dbPaymentMethod,
         transaction_id: finalTrx,
         payment_status: demoStatus,
       };
@@ -288,10 +323,10 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
           student_name: formData.studentName.trim(),
           whatsapp_number: formData.whatsappNumber.trim(),
           email: formData.email.trim().toLowerCase(),
-          course_name: `${formData.courseName.trim()} [${formData.paymentMethod} | ${demoStatus} | Trx: ${finalTrx}]`,
+          course_name: `${formData.courseName.trim()} [${formData.paymentMethod} | ${demoStatus} | Trx: ${finalTrx}${formData.hasScholarship ? ` | Scholarship: ${formData.scholarshipCategory}` : ''}]`,
           photo_url: photoPreview || null,
           has_scholarship: formData.hasScholarship,
-          payment_method: 'Online',
+          payment_method: dbPaymentMethod,
         };
 
         const fallbackRes = await supabase.from('student_test_records').insert(legacyPayload);
@@ -308,11 +343,11 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
         email: formData.email.trim().toLowerCase(),
         courseName: formData.courseName.trim(),
         hasScholarship: formData.hasScholarship,
+        scholarshipCategory: formData.hasScholarship ? formData.scholarshipCategory : undefined,
         paymentMethod: formData.paymentMethod,
         transactionId: finalTrx,
         paymentStatus: demoStatus,
         createdAt: nowIso,
-        photoUrl: photoPreview || null,
       });
 
       setSubmitSuccess(true);
@@ -471,7 +506,9 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
                 <div className="p-3 bg-slate-50/70 rounded-xl border border-slate-100">
                   <span className="text-slate-400 font-medium block text-[11px]">Scholarship Request</span>
                   <span className="font-semibold text-slate-800">
-                    {submissionRecord.hasScholarship ? 'Yes, Scholarship Applied' : 'Standard Admission'}
+                    {submissionRecord.hasScholarship
+                      ? `Yes, Applied (${submissionRecord.scholarshipCategory || 'Scholarship'})`
+                      : 'Standard Admission (No)'}
                   </span>
                 </div>
 
@@ -571,7 +608,8 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
                       email: '',
                       courseName: 'Full Stack Web & Cloud Development',
                       hasScholarship: false,
-                      paymentMethod: 'JazzCash (Demo)',
+                      scholarshipCategory: 'Merit-Based',
+                      paymentMethod: 'Cash Payment',
                     });
                     setPhotoPreview(null);
                   }}
@@ -728,34 +766,55 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
               </div>
             </div>
 
-            {/* Scholarship Question (Yes / No) */}
-            <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-200/80">
-              <label className="block text-xs font-bold text-amber-950 uppercase tracking-wider mb-2">
-                Do you have a scholarship? <span className="text-rose-500">*</span>
-              </label>
-              <div className="flex gap-4">
-                <label className="flex items-center gap-2 text-xs font-semibold text-slate-800 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="hasScholarship"
-                    checked={formData.hasScholarship === true}
-                    onChange={() => setFormData({ ...formData, hasScholarship: true })}
-                    className="text-amber-600 focus:ring-amber-500"
-                  />
-                  <span>Yes, I have a scholarship</span>
+            {/* Scholarship Question (Yes / No) with Category Selection */}
+            <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-200/80 space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-amber-950 uppercase tracking-wider mb-2">
+                  Do you have a scholarship? <span className="text-rose-500">*</span>
                 </label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-800 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="hasScholarship"
+                      checked={formData.hasScholarship === true}
+                      onChange={() => setFormData({ ...formData, hasScholarship: true })}
+                      className="text-amber-600 focus:ring-amber-500"
+                    />
+                    <span>Yes, I have a scholarship</span>
+                  </label>
 
-                <label className="flex items-center gap-2 text-xs font-semibold text-slate-800 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="hasScholarship"
-                    checked={formData.hasScholarship === false}
-                    onChange={() => setFormData({ ...formData, hasScholarship: false })}
-                    className="text-indigo-600 focus:ring-indigo-500"
-                  />
-                  <span>No scholarship</span>
-                </label>
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-800 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="hasScholarship"
+                      checked={formData.hasScholarship === false}
+                      onChange={() => setFormData({ ...formData, hasScholarship: false })}
+                      className="text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span>No scholarship</span>
+                  </label>
+                </div>
               </div>
+
+              {formData.hasScholarship && (
+                <div className="pt-2 border-t border-amber-200/60">
+                  <label className="block text-xs font-bold text-amber-950 uppercase tracking-wider mb-1.5">
+                    Select Scholarship Category <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={formData.scholarshipCategory}
+                    onChange={(e) => setFormData({ ...formData, scholarshipCategory: e.target.value })}
+                    className="w-full p-2.5 rounded-xl border border-amber-300 bg-white text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  >
+                    {SCHOLARSHIP_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             {/* ============================================================== */}
@@ -765,16 +824,16 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <label className="block text-xs font-extrabold text-slate-900 uppercase tracking-wider">
-                    Select Demo Payment Method <span className="text-rose-500">*</span>
+                    Select Payment Method <span className="text-rose-500">*</span>
                   </label>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 flex items-center gap-1">
                     <FlaskConical className="w-3 h-3" /> DEMO SANDBOX
                   </span>
                 </div>
 
-                {/* 3 Required Demo Options */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  {(['JazzCash (Demo)', 'Easypaisa (Demo)', 'Bank Transfer (Demo)'] as const).map(
+                {/* 4 Options: Cash Payment + 3 Demo Options */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  {(['Cash Payment', 'JazzCash (Demo)', 'Easypaisa (Demo)', 'Bank Transfer (Demo)'] as const).map(
                     (method) => {
                       const isSelected = formData.paymentMethod === method;
                       return (
@@ -787,12 +846,15 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
                             setDemoTransactionId('');
                             setDemoSuccessMessage(null);
                           }}
-                          className={`flex flex-col items-center justify-center p-3.5 rounded-2xl border text-xs font-bold transition-all cursor-pointer ${
+                          className={`flex flex-col items-center justify-center p-3 rounded-2xl border text-xs font-bold transition-all cursor-pointer ${
                             isSelected
                               ? 'border-indigo-600 bg-indigo-50/90 text-indigo-800 shadow-xs ring-2 ring-indigo-500/30'
                               : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-100'
                           }`}
                         >
+                          {method === 'Cash Payment' && (
+                            <Banknote className="w-5 h-5 mb-1.5 text-emerald-600" />
+                          )}
                           {method === 'JazzCash (Demo)' && (
                             <Smartphone className="w-5 h-5 mb-1.5 text-amber-600" />
                           )}
