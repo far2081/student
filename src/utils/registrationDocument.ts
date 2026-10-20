@@ -39,15 +39,15 @@ export const downloadRegistrationPdf = async (record: RegistrationRecordData): P
   let logoAdded = false;
   if (NEXORA_AI_LOGO_BASE64 && NEXORA_AI_LOGO_BASE64.startsWith('data:image')) {
     try {
-      // 444 x 350 aspect ratio -> 25mm width x 19.7mm height
-      doc.addImage(NEXORA_AI_LOGO_BASE64, 'PNG', marginX, 14, 25, 19.7);
+      // 1024 x 1024 square authentic Nexora AI logo -> 20mm x 20mm
+      doc.addImage(NEXORA_AI_LOGO_BASE64, 'JPEG', marginX, 13, 20, 20);
       logoAdded = true;
     } catch (e) {
       console.warn('Could not embed base64 logo in PDF:', e);
     }
   }
 
-  const headerTextX = logoAdded ? marginX + 28 : marginX;
+  const headerTextX = logoAdded ? marginX + 24 : marginX;
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(18);

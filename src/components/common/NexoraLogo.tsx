@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import logoPng from '../../assets/nexora-logo.png';
+import originalLogo from '../../assets/nexora_ai_logo.png';
 import { NEXORA_AI_LOGO_BASE64 } from '../../assets/nexoraLogoData';
 
 interface NexoraLogoProps {
@@ -15,25 +15,25 @@ export const NexoraLogo: React.FC<NexoraLogoProps> = ({
 }) => {
   const [useFallback, setUseFallback] = useState(false);
 
-  // Dimensions optimized for original 444x350 Nexora Academy logo
+  // Dimensions for authentic 1024x1024 Nexora AI logo
   const heightClasses = {
-    sm: 'h-8 sm:h-9 w-auto',
-    md: 'h-10 sm:h-12 w-auto',
-    lg: 'h-14 sm:h-16 w-auto',
-    xl: 'h-18 sm:h-20 w-auto',
-    hero: 'h-20 sm:h-24 w-auto',
+    sm: 'h-9 sm:h-10 w-auto',
+    md: 'h-11 sm:h-12 w-auto',
+    lg: 'h-16 sm:h-18 w-auto',
+    xl: 'h-20 sm:h-22 w-auto',
+    hero: 'h-24 sm:h-28 w-auto',
   }[size];
 
-  // Use original PNG import, fallback to inlined base64
-  const logoSrc = useFallback ? NEXORA_AI_LOGO_BASE64 : (logoPng || NEXORA_AI_LOGO_BASE64);
+  // Try the imported original asset first; fallback to guaranteed inline Base64
+  const logoSrc = useFallback ? NEXORA_AI_LOGO_BASE64 : (originalLogo || NEXORA_AI_LOGO_BASE64);
 
   return (
     <div className={`inline-flex flex-col items-center justify-center select-none ${className}`}>
       <img
         src={logoSrc}
-        alt="Nexora Academy Official Logo"
+        alt="Nexora AI Official Logo"
         onError={() => setUseFallback(true)}
-        className={`${heightClasses} object-contain transition-transform duration-200`}
+        className={`${heightClasses} aspect-square object-contain transition-transform duration-200`}
         style={{
           imageRendering: 'auto',
           display: 'block',

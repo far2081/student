@@ -381,10 +381,9 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
                 <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
                   Student Registration Form
                 </h1>
-                <span className="inline-flex items-center gap-1 mt-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-400/20 text-amber-200 border border-amber-300/30">
-                  <FlaskConical className="w-3 h-3 text-amber-300" />
-                  DEMO PAYMENT SYSTEM • NO REAL MONEY
-                </span>
+                <p className="text-xs text-indigo-200 font-medium mt-0.5">
+                  Nexora Academy Official Portal
+                </p>
               </div>
             </div>
 

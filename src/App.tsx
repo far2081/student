@@ -15,9 +15,17 @@ const MainAppContent: React.FC = () => {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-18 flex items-center justify-between">
           <div
             onClick={() => setCurrentView('form')}
-            className="cursor-pointer flex items-center gap-2"
+            className="cursor-pointer flex items-center gap-3"
           >
-            <NexoraLogo size="sm" showSubtitle />
+            <NexoraLogo size="sm" />
+            <div className="flex flex-col">
+              <span className="text-base sm:text-lg font-black tracking-tight text-slate-900 leading-tight">
+                NEXORA ACADEMY
+              </span>
+              <span className="text-[10px] sm:text-[11px] tracking-wider uppercase font-extrabold text-indigo-600">
+                Admission & Fee Portal
+              </span>
+            </div>
           </div>
 
           <div className="flex items-center gap-3">
