@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import logoPng from '../../assets/nexora-logo.png';
 import { NEXORA_AI_LOGO_BASE64 } from '../../assets/nexoraLogoData';
 
 interface NexoraLogoProps {
@@ -12,20 +13,7 @@ export const NexoraLogo: React.FC<NexoraLogoProps> = ({
   size = 'md',
   showSubtitle = false,
 }) => {
-  const [srcIndex, setSrcIndex] = useState(0);
-
-  const candidateSources = [
-    '/assets/nexora-logo.png',
-    '/assets/nexora_ai_logo.png',
-    '/assets/nexora-logo-header.png',
-    NEXORA_AI_LOGO_BASE64,
-  ];
-
-  const handleError = () => {
-    if (srcIndex < candidateSources.length - 1) {
-      setSrcIndex((prev) => prev + 1);
-    }
-  };
+  const [useFallback, setUseFallback] = useState(false);
 
   const heightClasses = {
     sm: 'h-8 max-w-[130px]',
@@ -35,12 +23,15 @@ export const NexoraLogo: React.FC<NexoraLogoProps> = ({
     hero: 'h-20 sm:h-24 max-w-[320px]',
   }[size];
 
+  // Try the imported asset first; fallback to the exact Base64 logo
+  const logoSrc = useFallback ? NEXORA_AI_LOGO_BASE64 : logoPng;
+
   return (
     <div className={`inline-flex flex-col items-center justify-center select-none ${className}`}>
       <img
-        src={candidateSources[srcIndex]}
-        alt="Nexora Academy Official Logo"
-        onError={handleError}
+        src={logoSrc}
+        alt="Official Logo"
+        onError={() => setUseFallback(true)}
         className={`${heightClasses} w-auto object-contain transition-transform duration-200`}
         style={{
           imageRendering: 'auto',

@@ -111,10 +111,14 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
         );
       }
 
-      // 1. Direct Supabase INSERT into student_test_records
-      const { data, error } = await supabase
+      // 1. Generate client UUID for exact submission reference ID
+      const newRefId = crypto.randomUUID();
+
+      // 2. Direct Supabase INSERT into student_test_records (without .select() to comply with RLS insert-only policy)
+      const { error } = await supabase
         .from('student_test_records')
         .insert({
+          id: newRefId,
           student_name: formData.studentName.trim(),
           whatsapp_number: formData.whatsappNumber.trim(),
           email: formData.email.trim().toLowerCase(),
@@ -122,9 +126,7 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
           photo_url: photoPreview || null,
           has_scholarship: formData.hasScholarship,
           payment_method: formData.paymentMethod,
-        })
-        .select('id')
-        .single();
+        });
 
       if (error) {
         console.error('Supabase insert error:', error);
@@ -136,8 +138,7 @@ export const StudentTestForm: React.FC<StudentTestFormProps> = ({ onOpenAdmin })
         throw new Error(error.message || 'Database rejected the submission.');
       }
 
-      // Successful Supabase insert!
-      const newRefId = data?.id ? String(data.id) : `NX-${Date.now().toString().slice(-6)}`;
+      // Successful Supabase insert confirmed by database response!
       setSubmissionId(newRefId);
       setSubmitSuccess(true);
 

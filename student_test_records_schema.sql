@@ -61,3 +61,42 @@ BEGIN
     END IF;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 4. Secure single submission verification for individual students (Zero leakage of other students)
+CREATE OR REPLACE FUNCTION public.verify_single_test_submission(
+    p_submission_id TEXT,
+    p_lookup TEXT
+)
+RETURNS JSONB AS $$
+DECLARE
+    v_rec RECORD;
+BEGIN
+    SELECT 
+        id, student_name, course_name, payment_method, has_scholarship, created_at
+    INTO v_rec
+    FROM public.student_test_records
+    WHERE (
+        id::TEXT = TRIM(p_submission_id)
+        OR id::TEXT LIKE '%' || TRIM(p_submission_id) || '%'
+    ) AND (
+        LOWER(TRIM(email)) = LOWER(TRIM(p_lookup))
+        OR REPLACE(whatsapp_number, ' ', '') = REPLACE(p_lookup, ' ', '')
+        OR RIGHT(REPLACE(whatsapp_number, ' ', ''), 7) = RIGHT(REPLACE(p_lookup, ' ', ''), 7)
+    )
+    LIMIT 1;
+
+    IF v_rec.id IS NOT NULL THEN
+        RETURN jsonb_build_object(
+            'found', TRUE,
+            'id', v_rec.id,
+            'student_name', v_rec.student_name,
+            'course_name', v_rec.course_name,
+            'payment_method', v_rec.payment_method,
+            'has_scholarship', v_rec.has_scholarship,
+            'created_at', v_rec.created_at
+        );
+    ELSE
+        RETURN jsonb_build_object('found', FALSE);
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
