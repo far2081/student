@@ -12,10 +12,14 @@ import {
   Calendar,
   CheckCircle,
   AlertCircle,
-  FileSpreadsheet,
   BookOpen,
   UserCheck,
   CheckCircle2,
+  Printer,
+  Clock,
+  CreditCard,
+  Receipt,
+  Check,
 } from 'lucide-react';
 
 interface StudentTestRecord {
@@ -27,6 +31,8 @@ interface StudentTestRecord {
   photo_url?: string;
   has_scholarship: boolean;
   payment_method: string;
+  transaction_id?: string;
+  payment_status?: string;
   created_at: string;
 }
 
@@ -41,7 +47,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
   const [lookupSubmissionId, setLookupSubmissionId] = useState('');
   const [lookupPhoneOrEmail, setLookupPhoneOrEmail] = useState('');
   const [isLookingUp, setIsLookingUp] = useState(false);
-  const [lookupResult, setLookupResult] = useState<any | null>(null);
+  const [lookupResult, setLookupResult] = useState<StudentTestRecord | null>(null);
   const [lookupError, setLookupError] = useState<string | null>(null);
 
   // Admin access state
@@ -55,8 +61,23 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
   const [isLoading, setIsLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState<string | null>(null);
 
-  // 1. Student self-verification by Reference ID
+  // Print handlers for student lookup result
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const handleDownloadPdf = () => {
+    const originalTitle = document.title;
+    document.title = `Registration_Voucher_${lookupResult?.id || 'Student'}`;
+    window.print();
+    setTimeout(() => {
+      document.title = originalTitle;
+    }, 1500);
+  };
+
+  // 1. Student self-verification by Reference ID & phone/email
   const handleVerifyMySubmission = async (e: React.FormEvent) => {
     e.preventDefault();
     setLookupError(null);
@@ -88,11 +109,23 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
       });
 
       if (!rpcErr && rpcRes && rpcRes.found) {
-        setLookupResult(rpcRes);
+        setLookupResult({
+          id: rpcRes.id,
+          student_name: rpcRes.student_name,
+          whatsapp_number: cleanLookup.includes('@') ? '' : cleanLookup,
+          email: cleanLookup.includes('@') ? cleanLookup : '',
+          course_name: rpcRes.course_name,
+          payment_method: rpcRes.payment_method || 'Online',
+          transaction_id: rpcRes.transaction_id || 'CASH-COUNTER',
+          payment_status: rpcRes.payment_status || 'Pending Verification',
+          has_scholarship: rpcRes.has_scholarship,
+          created_at: rpcRes.created_at,
+          photo_url: rpcRes.photo_url,
+        });
         return;
       }
 
-      // Fallback: Check admin RPC if teacher has session or try direct ID lookup
+      // Fallback via admin RPC
       const { data: adminList } = await supabase.rpc('get_class_test_submissions', {
         p_admin_pass: 'Farhana@2026',
       });
@@ -108,13 +141,17 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
 
         if (found) {
           setLookupResult({
-            found: true,
             id: found.id,
             student_name: found.student_name,
+            whatsapp_number: found.whatsapp_number,
+            email: found.email,
             course_name: found.course_name,
-            payment_method: found.payment_method,
+            payment_method: found.payment_method || 'Online',
+            transaction_id: found.transaction_id || (found.course_name?.includes('[Trx:') ? found.course_name.split('[Trx:')[1]?.replace(']', '').trim() : 'N/A'),
+            payment_status: found.payment_status || 'Pending Verification',
             has_scholarship: found.has_scholarship,
             created_at: found.created_at,
+            photo_url: found.photo_url,
           });
           return;
         }
@@ -170,12 +207,51 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
         );
       }
 
-      setRecords(data || []);
+      // Map records to ensure payment_status has default if undefined
+      const mapped = (data || []).map((r: any) => ({
+        ...r,
+        payment_status: r.payment_status || 'Pending Verification',
+        transaction_id: r.transaction_id || (r.course_name?.includes('[Trx:') ? r.course_name.split('[Trx:')[1]?.replace(']', '').trim() : 'N/A'),
+      }));
+
+      setRecords(mapped);
     } catch (err: any) {
       console.error('Failed to fetch submissions:', err);
       setFetchError(err.message || 'Failed to retrieve records from database.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // 4. Toggle payment status between 'Pending Verification' and 'Verified'
+  const handleTogglePaymentStatus = async (recordId: string, currentStatus?: string) => {
+    const newStatus = currentStatus === 'Verified' ? 'Pending Verification' : 'Verified';
+    setIsUpdatingStatus(recordId);
+
+    // Optimistic UI update
+    setRecords((prev) =>
+      prev.map((r) => (r.id === recordId ? { ...r, payment_status: newStatus } : r))
+    );
+
+    try {
+      // 1. Try secure RPC if configured
+      const { error: rpcErr } = await supabase.rpc('update_test_submission_status', {
+        p_admin_pass: 'Farhana@2026',
+        p_submission_id: recordId,
+        p_new_status: newStatus,
+      });
+
+      if (rpcErr) {
+        // Fallback: direct update
+        await supabase
+          .from('student_test_records')
+          .update({ payment_status: newStatus })
+          .eq('id', recordId);
+      }
+    } catch (err) {
+      console.warn('Status update sync:', err);
+    } finally {
+      setIsUpdatingStatus(null);
     }
   };
 
@@ -185,7 +261,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
     }
   }, [isAuthenticated, activeMode]);
 
-  // CSV Export
+  // CSV Export with Payment Method, Transaction ID, and Status
   const handleExportCSV = () => {
     if (records.length === 0) return;
 
@@ -198,6 +274,8 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
       'Course Name',
       'Has Scholarship',
       'Payment Method',
+      'Transaction ID / Ref',
+      'Payment Status',
       'Submission Date & Time',
     ];
 
@@ -209,6 +287,8 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
       r.course_name,
       r.has_scholarship ? 'Yes' : 'No',
       r.payment_method,
+      r.transaction_id || 'N/A',
+      r.payment_status || 'Pending Verification',
       new Date(r.created_at).toLocaleString('en-PK'),
     ]);
 
@@ -234,16 +314,20 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
       r.student_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       r.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       r.whatsapp_number?.includes(searchTerm) ||
-      r.course_name?.toLowerCase().includes(searchTerm.toLowerCase())
+      r.course_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      r.transaction_id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      r.payment_status?.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const isVerifiedPayment = lookupResult?.payment_status === 'Verified' || lookupResult?.payment_status === 'Approved';
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
       {/* Top Back & Mode Toggle */}
-      <div className="mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 no-print">
         <button
           onClick={onBackToForm}
-          className="inline-flex items-center gap-2 text-xs font-bold text-slate-600 hover:text-indigo-600 transition-colors"
+          className="inline-flex items-center gap-2 text-xs font-bold text-slate-600 hover:text-indigo-600 transition-colors cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" /> Back to Registration Form
         </button>
@@ -252,7 +336,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
         <div className="flex bg-slate-200/80 p-1 rounded-xl text-xs font-bold">
           <button
             onClick={() => setActiveMode('student_lookup')}
-            className={`px-3.5 py-1.5 rounded-lg transition-all ${
+            className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer ${
               activeMode === 'student_lookup'
                 ? 'bg-white text-indigo-700 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
@@ -262,7 +346,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
           </button>
           <button
             onClick={() => setActiveMode('admin_table')}
-            className={`px-3.5 py-1.5 rounded-lg transition-all ${
+            className={`px-3.5 py-1.5 rounded-lg transition-all cursor-pointer ${
               activeMode === 'admin_table'
                 ? 'bg-white text-indigo-700 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900'
@@ -278,7 +362,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
       {/* ================================================================ */}
       {activeMode === 'student_lookup' && (
         <div className="max-w-xl mx-auto bg-white rounded-3xl shadow-xl border border-slate-200/90 p-6 sm:p-8">
-          <div className="flex items-center gap-3 pb-4 mb-6 border-b border-slate-100">
+          <div className="flex items-center gap-3 pb-4 mb-6 border-b border-slate-100 no-print">
             <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
               <UserCheck className="w-6 h-6" />
             </div>
@@ -287,12 +371,12 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
                 Verify Your Registration
               </h2>
               <p className="text-xs text-slate-500">
-                Verify that your individual submission is saved in the database.
+                Verify your submission and check payment verification status in Supabase.
               </p>
             </div>
           </div>
 
-          <form onSubmit={handleVerifyMySubmission} className="space-y-4">
+          <form onSubmit={handleVerifyMySubmission} className="space-y-4 no-print">
             <div>
               <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
                 Submission Reference ID <span className="text-rose-500">*</span>
@@ -347,44 +431,137 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
             </button>
           </form>
 
-          {/* Verification Result Card */}
+          {/* ============================================================== */}
+          {/* VERIFICATION RESULT CARD & REQUIRED STATUS MESSAGES            */}
+          {/* ============================================================== */}
           {lookupResult && (
-            <div className="mt-6 p-5 rounded-2xl bg-emerald-50/70 border border-emerald-200 animate-in fade-in zoom-in-95">
-              <div className="flex items-center gap-2 text-emerald-800 text-xs font-bold uppercase tracking-wider mb-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                Verified & Saved in Supabase Database
+            <div className="mt-6 space-y-4 animate-in fade-in zoom-in-95">
+              {/* Conditional Required Status Message Banner */}
+              {isVerifiedPayment ? (
+                <div className="p-4 sm:p-5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-950 flex items-start gap-3 shadow-xs">
+                  <CheckCircle2 className="w-6 h-6 text-emerald-600 shrink-0 mt-0.5" />
+                  <div>
+                    <h3 className="font-extrabold text-sm sm:text-base text-emerald-900">
+                      Your payment has been verified successfully. Thank you!
+                    </h3>
+                    <p className="text-xs text-emerald-700 mt-0.5 font-medium">
+                      Your fee has been verified by the administration. Your seat is confirmed.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 sm:p-5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 flex items-start gap-3 shadow-xs">
+                  <Clock className="w-6 h-6 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <h3 className="font-extrabold text-sm sm:text-base text-amber-900">
+                      Payment Verification Pending
+                    </h3>
+                    <p className="text-xs text-amber-800 mt-0.5 font-medium leading-relaxed">
+                      Your registration has been submitted successfully. Your payment details have been received and are pending verification.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Printable Record Voucher */}
+              <div
+                id="student-registration-voucher"
+                className="printable-record bg-white p-5 rounded-2xl border border-slate-200 text-xs space-y-4 text-slate-700 shadow-sm"
+              >
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <NexoraLogo size="sm" />
+                    <div>
+                      <h4 className="font-extrabold text-slate-900 uppercase">Nexora Academy</h4>
+                      <p className="text-[10px] text-slate-500">Student Registration & Verification Voucher</p>
+                    </div>
+                  </div>
+
+                  <span
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-bold border inline-flex items-center gap-1.5 ${
+                      isVerifiedPayment
+                        ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                        : 'bg-amber-100 text-amber-900 border-amber-300'
+                    }`}
+                  >
+                    {isVerifiedPayment ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-700" />
+                        Verified
+                      </>
+                    ) : (
+                      <>
+                        <Clock className="w-3.5 h-3.5 text-amber-700" />
+                        Pending Verification
+                      </>
+                    )}
+                  </span>
+                </div>
+
+                <div className="space-y-2 text-xs">
+                  <div className="flex justify-between py-1 border-b border-slate-100">
+                    <span className="text-slate-400">Reference ID:</span>
+                    <span className="font-mono font-bold text-indigo-700 break-all select-all">{lookupResult.id}</span>
+                  </div>
+
+                  <div className="flex justify-between py-1 border-b border-slate-100">
+                    <span className="text-slate-400">Student Name:</span>
+                    <span className="font-bold text-slate-900">{lookupResult.student_name}</span>
+                  </div>
+
+                  <div className="flex justify-between py-1 border-b border-slate-100">
+                    <span className="text-slate-400">Enrolled Program:</span>
+                    <span className="font-semibold text-indigo-800">{lookupResult.course_name}</span>
+                  </div>
+
+                  <div className="flex justify-between py-1 border-b border-slate-100">
+                    <span className="text-slate-400">Payment Method:</span>
+                    <span className="font-bold text-slate-800">{lookupResult.payment_method}</span>
+                  </div>
+
+                  <div className="flex justify-between py-1 border-b border-slate-100">
+                    <span className="text-slate-400">Transaction ID / Ref:</span>
+                    <span className="font-mono font-bold text-indigo-900">{lookupResult.transaction_id || 'CASH-COUNTER'}</span>
+                  </div>
+
+                  <div className="flex justify-between py-1 border-b border-slate-100">
+                    <span className="text-slate-400">Scholarship Status:</span>
+                    <span className="font-medium">{lookupResult.has_scholarship ? 'Applied' : 'Standard'}</span>
+                  </div>
+
+                  <div className="flex justify-between pt-1 text-[11px]">
+                    <span className="text-slate-400">Submission Timestamp:</span>
+                    <span className="font-mono text-slate-500">
+                      {new Date(lookupResult.created_at).toLocaleString('en-PK')}
+                    </span>
+                  </div>
+                </div>
               </div>
 
-              <div className="bg-white p-4 rounded-xl border border-emerald-100 text-xs space-y-1.5 text-slate-700">
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Student Name:</span>
-                  <span className="font-bold text-slate-900">{lookupResult.student_name}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Enrolled Program:</span>
-                  <span className="font-semibold text-indigo-700">{lookupResult.course_name}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Payment Option:</span>
-                  <span className="font-medium">{lookupResult.payment_method}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-400">Scholarship Status:</span>
-                  <span className="font-medium">
-                    {lookupResult.has_scholarship ? 'Applied' : 'Standard'}
-                  </span>
-                </div>
-                <div className="flex justify-between pt-1 border-t border-slate-100 text-[11px]">
-                  <span className="text-slate-400">Timestamp:</span>
-                  <span className="font-mono text-slate-500">
-                    {new Date(lookupResult.created_at).toLocaleString('en-PK')}
-                  </span>
-                </div>
+              {/* Print and PDF Action Buttons */}
+              <div className="no-print grid grid-cols-2 gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handlePrint}
+                  className="py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5 text-indigo-300" />
+                  Print Registration
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadPdf}
+                  className="py-2.5 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Download PDF
+                </button>
               </div>
             </div>
           )}
 
-          <div className="mt-6 pt-4 border-t border-slate-100 text-center text-[11px] text-slate-400">
+          <div className="mt-6 pt-4 border-t border-slate-100 text-center text-[11px] text-slate-400 no-print">
             Protected by Row Level Security (RLS) • Other students' private data is never exposed.
           </div>
         </div>
@@ -396,7 +573,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
       {activeMode === 'admin_table' && (
         <>
           {!isAuthenticated ? (
-            <div className="max-w-md mx-auto bg-white rounded-3xl shadow-xl border border-slate-200/90 p-8 text-center">
+            <div className="max-w-md mx-auto bg-white rounded-3xl shadow-xl border border-slate-200/90 p-8 text-center no-print">
               <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
                 <Lock className="w-6 h-6" />
               </div>
@@ -404,7 +581,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
                 Class Administrator Access
               </h2>
               <p className="text-xs text-slate-500 mb-6">
-                Enter your admin passcode to view all saved registrations and export to Excel.
+                Enter your admin passcode to verify student payments and download the class roster.
               </p>
 
               {authError && (
@@ -434,11 +611,11 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
           ) : (
             <div className="space-y-6">
               {/* Summary KPIs */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 no-print">
                 <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm flex items-center justify-between">
                   <div>
                     <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                      Total Class Submissions
+                      Total Registrations
                     </span>
                     <p className="text-3xl font-extrabold text-indigo-600 mt-1">
                       {records.length}
@@ -453,43 +630,58 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
                 <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm flex items-center justify-between">
                   <div>
                     <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                      Scholarship Requests
+                      Verified Payments
                     </span>
-                    <p className="text-3xl font-extrabold text-amber-600 mt-1">
-                      {records.filter((r) => r.has_scholarship).length}
+                    <p className="text-3xl font-extrabold text-emerald-600 mt-1">
+                      {records.filter((r) => r.payment_status === 'Verified' || r.payment_status === 'Approved').length}
                     </p>
-                    <span className="text-[11px] text-amber-700">Requested concession</span>
+                    <span className="text-[11px] text-emerald-700">Confirmed seats</span>
                   </div>
-                  <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
-                    <CheckCircle className="w-6 h-6" />
+                  <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                    <CheckCircle2 className="w-6 h-6" />
                   </div>
                 </div>
 
                 <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm flex items-center justify-between">
                   <div>
                     <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                      Cash Inquiries
+                      Pending Verification
                     </span>
-                    <p className="text-3xl font-extrabold text-emerald-600 mt-1">
-                      {records.filter((r) => r.payment_method === 'Cash').length}
+                    <p className="text-3xl font-extrabold text-amber-600 mt-1">
+                      {records.filter((r) => r.payment_status !== 'Verified' && r.payment_status !== 'Approved').length}
                     </p>
-                    <span className="text-[11px] text-emerald-700">Counter payments</span>
+                    <span className="text-[11px] text-amber-700">Awaiting check</span>
                   </div>
-                  <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                    <BookOpen className="w-6 h-6" />
+                  <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+                    <Clock className="w-6 h-6" />
+                  </div>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm flex items-center justify-between">
+                  <div>
+                    <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                      Scholarship Requests
+                    </span>
+                    <p className="text-3xl font-extrabold text-purple-600 mt-1">
+                      {records.filter((r) => r.has_scholarship).length}
+                    </p>
+                    <span className="text-[11px] text-purple-700">Requested concession</span>
+                  </div>
+                  <div className="w-12 h-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
+                    <CheckCircle className="w-6 h-6" />
                   </div>
                 </div>
               </div>
 
               {/* Action Toolbar */}
-              <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4 no-print">
                 <div className="relative w-full sm:w-80">
                   <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
                   <input
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Search student, email, course..."
+                    placeholder="Search name, phone, TID, status..."
                     className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-300 text-xs font-medium focus:ring-2 focus:ring-indigo-500"
                   />
                 </div>
@@ -514,7 +706,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
 
                   <button
                     onClick={handleAdminLogout}
-                    className="text-xs font-bold text-rose-600 hover:text-rose-800 ml-2"
+                    className="text-xs font-bold text-rose-600 hover:text-rose-800 ml-2 cursor-pointer"
                   >
                     Lock
                   </button>
@@ -522,7 +714,7 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
               </div>
 
               {fetchError && (
-                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-3">
+                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-3 no-print">
                   <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                   <div>
                     <span className="font-bold">Notice:</span> {fetchError}
@@ -538,11 +730,11 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
                       <tr>
                         <th className="py-3 px-4">Student Name</th>
                         <th className="py-3 px-4">WhatsApp</th>
-                        <th className="py-3 px-4">Email</th>
                         <th className="py-3 px-4">Course Enrolled</th>
-                        <th className="py-3 px-4 text-center">Scholarship</th>
-                        <th className="py-3 px-4">Payment</th>
-                        <th className="py-3 px-4 text-right">Submission Date</th>
+                        <th className="py-3 px-4">Method</th>
+                        <th className="py-3 px-4">Transaction / Ref</th>
+                        <th className="py-3 px-4 text-center">Payment Status</th>
+                        <th className="py-3 px-4 text-right">Action / Date</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 font-medium">
@@ -555,54 +747,98 @@ export const AdminVerificationView: React.FC<AdminVerificationViewProps> = ({ on
                           </td>
                         </tr>
                       ) : (
-                        filteredRecords.map((r) => (
-                          <tr key={r.id} className="hover:bg-slate-50/70 transition-colors">
-                            <td className="py-3 px-4">
-                              <div className="flex items-center gap-2.5">
-                                {r.photo_url ? (
-                                  <img
-                                    src={r.photo_url}
-                                    alt=""
-                                    className="w-7 h-7 rounded-lg object-cover border border-slate-200"
-                                  />
-                                ) : (
-                                  <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-[10px]">
-                                    {r.student_name.slice(0, 2).toUpperCase()}
+                        filteredRecords.map((r) => {
+                          const isVerified = r.payment_status === 'Verified' || r.payment_status === 'Approved';
+                          return (
+                            <tr key={r.id} className="hover:bg-slate-50/70 transition-colors">
+                              <td className="py-3 px-4">
+                                <div className="flex items-center gap-2.5">
+                                  {r.photo_url ? (
+                                    <img
+                                      src={r.photo_url}
+                                      alt=""
+                                      className="w-8 h-8 rounded-lg object-cover border border-slate-200"
+                                    />
+                                  ) : (
+                                    <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-[10px]">
+                                      {r.student_name.slice(0, 2).toUpperCase()}
+                                    </div>
+                                  )}
+                                  <div>
+                                    <span className="font-bold text-slate-900 block">{r.student_name}</span>
+                                    <span className="text-[10px] text-slate-400 font-mono">{r.email}</span>
                                   </div>
-                                )}
-                                <span className="font-bold text-slate-900">{r.student_name}</span>
-                              </div>
-                            </td>
+                                </div>
+                              </td>
 
-                            <td className="py-3 px-4 font-mono text-slate-600">{r.whatsapp_number}</td>
+                              <td className="py-3 px-4 font-mono text-slate-600">{r.whatsapp_number}</td>
 
-                            <td className="py-3 px-4 text-slate-600">{r.email}</td>
+                              <td className="py-3 px-4">
+                                <span className="font-semibold text-indigo-900">{r.course_name}</span>
+                              </td>
 
-                            <td className="py-3 px-4">
-                              <span className="font-semibold text-indigo-900">{r.course_name}</span>
-                            </td>
-
-                            <td className="py-3 px-4 text-center">
-                              {r.has_scholarship ? (
-                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">
-                                  Yes
+                              <td className="py-3 px-4">
+                                <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold text-[11px]">
+                                  {r.payment_method}
                                 </span>
-                              ) : (
-                                <span className="text-slate-400 text-[10px]">No</span>
-                              )}
-                            </td>
+                              </td>
 
-                            <td className="py-3 px-4">
-                              <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-semibold text-[11px]">
-                                {r.payment_method}
-                              </span>
-                            </td>
+                              <td className="py-3 px-4">
+                                <span className="font-mono font-bold text-indigo-700 text-[11px] bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
+                                  {r.transaction_id || 'N/A'}
+                                </span>
+                              </td>
 
-                            <td className="py-3 px-4 text-right text-slate-500 font-mono text-[11px]">
-                              {new Date(r.created_at).toLocaleString('en-PK')}
-                            </td>
-                          </tr>
-                        ))
+                              <td className="py-3 px-4 text-center">
+                                <span
+                                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold border ${
+                                    isVerified
+                                      ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                                      : 'bg-amber-100 text-amber-900 border-amber-300'
+                                  }`}
+                                >
+                                  {isVerified ? (
+                                    <>
+                                      <CheckCircle2 className="w-3 h-3 text-emerald-700" />
+                                      Verified
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Clock className="w-3 h-3 text-amber-700" />
+                                      Pending
+                                    </>
+                                  )}
+                                </span>
+                              </td>
+
+                              <td className="py-3 px-4 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  <button
+                                    onClick={() => handleTogglePaymentStatus(r.id, r.payment_status)}
+                                    disabled={isUpdatingStatus === r.id}
+                                    title={isVerified ? 'Mark as Pending' : 'Mark as Verified'}
+                                    className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                                      isVerified
+                                        ? 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                        : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-xs'
+                                    }`}
+                                  >
+                                    {isUpdatingStatus === r.id ? (
+                                      <RefreshCw className="w-3 h-3 animate-spin" />
+                                    ) : isVerified ? (
+                                      'Revert'
+                                    ) : (
+                                      'Verify Payment'
+                                    )}
+                                  </button>
+                                  <span className="text-[10px] text-slate-400 font-mono hidden sm:inline">
+                                    {new Date(r.created_at).toLocaleDateString('en-PK')}
+                                  </span>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
                       )}
                     </tbody>
                   </table>

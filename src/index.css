@@ -29,14 +29,36 @@
   @media print {
     @page {
       margin: 10mm;
-      size: auto;
+      size: A4 portrait;
     }
     body {
       background: white !important;
-      color: black !important;
+      color: #0f172a !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
-    .no-print {
+    body * {
+      visibility: hidden;
+    }
+    .printable-record, .printable-record * {
+      visibility: visible;
+    }
+    .printable-record {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100% !important;
+      max-width: 100% !important;
+      margin: 0 !important;
+      padding: 24px !important;
+      box-shadow: none !important;
+      border: 1px solid #cbd5e1 !important;
+      border-radius: 12px !important;
+      background: white !important;
+    }
+    .no-print, header, footer, button, .no-print * {
       display: none !important;
+      visibility: hidden !important;
     }
     .print-only {
       display: block !important;
